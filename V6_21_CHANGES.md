@@ -1,0 +1,26 @@
+# W.I.T.C.H. Tetris v6.21
+
+- Matrix 200-line ending now uses a real-time clock. Slow frame decoding skips late frames instead of stretching the whole video.
+- Guardians victory: all 200+ gameplay pieces, locked cells, NEXT and HOLD become classic sprite-free Tetris blocks.
+- Phobos victory: every line-clear effect becomes dark-purple lightning.
+- Phobos victory: 1–3 line character reactions are replaced with scream/groan effects.
+- Phobos Tetris: Heart of Kandrakar is replaced by a Phobos portrait and Will's line / "not bad" are suppressed; a random supplied Phobos laugh is used instead.
+- 300-line Phobos fourth-wall room rebuilt:
+  - supplied room background;
+  - supplied Phobos emotion sheets split into 27 usable emotion images;
+  - no voice acting in the room;
+  - random independent phrase chains from `assets/cutscenes/phobos_room/replicas.json`;
+  - SPACE advances lines inside the current chain;
+  - new random chain about every 40 seconds;
+  - `[WAIT 40s]` is a real unskippable wait inside troll chains;
+  - random reactions to story/game keys;
+  - ESC never leaves the room;
+  - right Shift has the developer-specific joke;
+  - after key-spam Phobos stops commenting on most keys;
+  - only closing the application window exits the room/game.
+- SETTINGS added to main menu:
+  - each playable character/tetromino can be deleted/restored persistently;
+  - deleted character piece is excluded from gameplay randomizer;
+  - PHOBOS can be deleted/restored;
+  - if PHOBOS is deleted, NEW GAME immediately shows `ВЫ ВЫИГРАЛИ`; any key returns to menu.
+- Mini-games and the 100-line collection/reward system are intentionally deferred to the next/final development stage as requested.

@@ -1,0 +1,3 @@
+# Buildozer uses buildozer.spec, not this file. Kept for clarity.
+python3
+pygame-ce==2.3.0

@@ -1,0 +1,34 @@
+# W.I.T.C.H. Tetris v6.22 — global character rules / third cutscene / Phobos room fix
+
+- Character deletion is now a global world rule:
+  - deleted tetromino is excluded from gameplay/NEXT/HOLD;
+  - deleted characters are filtered out of intro and 100/200-line story scenes;
+  - Will cannot speak on a Tetris when Will/Z is deleted;
+  - the 100-line resistance speaker is chosen only from characters that still exist;
+  - if only one character remains, that character carries the key resistance line "Удалённая реплика!".
+- If every playable character is deleted, NEW GAME starts with a genuinely empty well:
+  - no active piece;
+  - no NEXT fallback;
+  - no automatic restoration of the seven tetrominoes;
+  - test-build timeout: after 60 seconds Phobos says on screen "Мне скучно.", then the run ends with "ИГРА ЗАКОНЧЕНА / ФОБОС ЗАСКУЧАЛ".
+  - intended final timeout remains 120 seconds after testing.
+- SETTINGS no longer opens directly on the secret character list:
+  - root SETTINGS page: GAME / CHARACTERS / BACK;
+  - GAME contains START SPEED (1–5) and FREE PLAY [LOCKED];
+  - selecting FREE PLAY produces "ХА-ХА. СВОБОДА НЕДОСТУПНА.";
+  - character settings are one level deeper;
+  - mouse hover and click now work on all settings pages.
+- Third cutscene at 200 lines is now a real scene before "КТО ПОБЕДИТ?":
+  - reverse transformation from tetromino form through intermediate forms back to normal;
+  - Will + Heart beat when Will exists, otherwise the surviving character carries the resistance moment;
+  - Phobos casting/struggling beat;
+  - supplied Phobos collapse/disintegration sheet is split into six animated stages with particles;
+  - deleted characters never appear in the sequence;
+  - SPACE can advance beats, otherwise the scene advances automatically.
+- Phobos fourth-wall room trigger is hardened:
+  - on the Phobos route, reaching or already being beyond 300 lines starts the fake crash -> blackout -> room exactly once;
+  - developer +10-line jumps can also trigger it;
+  - ESC does nothing in the room; only closing the application window exits;
+  - room uses supplied background/emotion bank and random text chains, with no voice acting.
+- Existing v6.21 Phobos-ending effects remain: purple lightning clears, screams/reactions replacement, Phobos portrait/laugh on Tetris, no Will/not-bad line in the Phobos victory branch.
+- Mini-games and the collection remain deferred to the next build.

@@ -1,0 +1,102 @@
+{
+  "spawn_exchanges": [
+    {
+      "id": "will_01",
+      "character": "will",
+      "phobos": [{"text": "Сердце Кандракара снова рядом. Всё ещё прячешься за кристаллом?", "audio": "phobos/will_01_start"}],
+      "character_reply": [{"text": "Я не прячусь. Я держу нас вместе.", "audio": "will/will_01_reply"}],
+      "phobos_counter": [{"text": "Тогда посмотрим, как долго ты выдержишь его вес.", "audio": "phobos/will_01_counter"}]
+    },
+    {
+      "id": "will_02",
+      "character": "will",
+      "phobos": [{"text": "Опять Вилл. Самая неустойчивая часть этой жалкой команды.", "audio": "phobos/will_02_start"}],
+      "character_reply": [{"text": "И именно поэтому ты каждый раз замечаешь меня первой.", "audio": "will/will_02_reply"}],
+      "phobos_counter": [{"text": "Я замечаю угрозы. Даже маленькие.", "audio": "phobos/will_02_counter"}]
+    },
+    {
+      "id": "irma_01",
+      "character": "irma",
+      "phobos": [{"text": "Ирма. Вода принимает любую форму, но тебе всё же досталась эта.", "audio": "phobos/irma_01_start"}],
+      "character_reply": [{"text": "А тебе досталась роль злодея, который слишком любит собственный голос.", "audio": "irma/irma_01_reply"}],
+      "phobos_counter": [{"text": "Мой голос — последнее, что здесь звучит убедительно.", "audio": "phobos/irma_01_counter"}]
+    },
+    {
+      "id": "irma_02",
+      "character": "irma",
+      "phobos": [{"text": "Твои шутки не размоют стены моего дворца, Ирма.", "audio": "phobos/irma_02_start"}],
+      "character_reply": [{"text": "Зато отлично смывают самодовольство.", "audio": "irma/irma_02_reply"}],
+      "phobos_counter": [{"text": "Для этого понадобится океан побольше.", "audio": "phobos/irma_02_counter"}]
+    },
+    {
+      "id": "cornelia_01",
+      "character": "cornelia",
+      "phobos": [{"text": "Корнелия. Такая твёрдая решимость и такое хрупкое положение.", "audio": "phobos/cornelia_01_start"}],
+      "character_reply": [{"text": "Земля поднимается снова, сколько бы ты её ни ломал.", "audio": "cornelia/cornelia_01_reply"}],
+      "phobos_counter": [{"text": "А правители строят на ней новые стены.", "audio": "phobos/cornelia_01_counter"}]
+    },
+    {
+      "id": "cornelia_02",
+      "character": "cornelia",
+      "phobos": [{"text": "Ты всегда держишься прямо. Даже падая вместе с фигурой.", "audio": "phobos/cornelia_02_start"}],
+      "character_reply": [{"text": "Лучше падать прямо, чем всю жизнь прятаться за троном.", "audio": "cornelia/cornelia_02_reply"}],
+      "phobos_counter": [{"text": "Трон — не укрытие. Это высота.", "audio": "phobos/cornelia_02_counter"}]
+    },
+    {
+      "id": "taranee_01",
+      "character": "taranee",
+      "phobos": [{"text": "Тарани. Твой огонь стал тише. Наконец-то научилась бояться?", "audio": "phobos/taranee_01_start"}],
+      "character_reply": [{"text": "Нет. Научилась не тратить пламя на пустые угрозы.", "audio": "taranee/taranee_01_reply"}],
+      "phobos_counter": [{"text": "Сбереги его. Скоро останется только пепел.", "audio": "phobos/taranee_01_counter"}]
+    },
+    {
+      "id": "taranee_02",
+      "character": "taranee",
+      "phobos": [{"text": "Огонь прекрасен, пока знает, кому служить.", "audio": "phobos/taranee_02_start"}],
+      "character_reply": [{"text": "Поэтому он никогда не станет твоим.", "audio": "taranee/taranee_02_reply"}],
+      "phobos_counter": [{"text": "Всё становится моим. Вопрос лишь во времени.", "audio": "phobos/taranee_02_counter"}]
+    },
+    {
+      "id": "hay_lin_01",
+      "character": "hay_lin",
+      "phobos": [{"text": "Хай Лин. Ветер снова принёс тебя туда, где тебя не ждали.", "audio": "phobos/hay_lin_01_start"}],
+      "character_reply": [{"text": "Ветер вообще плохо спрашивает разрешения у тиранов.", "audio": "hay_lin/hay_lin_01_reply"}],
+      "phobos_counter": [{"text": "Тогда я научу его останавливаться.", "audio": "phobos/hay_lin_01_counter"}]
+    },
+    {
+      "id": "hay_lin_02",
+      "character": "hay_lin",
+      "phobos": [{"text": "Слишком легкомысленная для Стражницы Завесы.", "audio": "phobos/hay_lin_02_start"}],
+      "character_reply": [{"text": "А ты слишком тяжёлый для человека без настоящей короны.", "audio": "hay_lin/hay_lin_02_reply"}],
+      "phobos_counter": [{"text": "Остроумие не удержит тебя в воздухе.", "audio": "phobos/hay_lin_02_counter"}]
+    },
+    {
+      "id": "caleb_01",
+      "character": "caleb",
+      "phobos": [{"text": "Мой любимый мятежник снова изображает надежду.", "audio": "phobos/caleb_01_start"}],
+      "character_reply": [{"text": "А мой бывший правитель снова изображает власть.", "audio": "caleb/caleb_01_reply"}],
+      "phobos_counter": [{"text": "Разница в том, что моя роль пережила твоё восстание.", "audio": "phobos/caleb_01_counter"}]
+    },
+    {
+      "id": "caleb_02",
+      "character": "caleb",
+      "phobos": [{"text": "Сколько поражений нужно мятежнику, чтобы назвать себя верным подданным?", "audio": "phobos/caleb_02_start"}],
+      "character_reply": [{"text": "На одно больше, чем тебе осталось побед.", "audio": "caleb/caleb_02_reply"}],
+      "phobos_counter": [{"text": "Смело. Бессмысленно. Очень в твоём духе.", "audio": "phobos/caleb_02_counter"}]
+    },
+    {
+      "id": "blunk_01",
+      "character": "blunk",
+      "phobos": [{"text": "Бланк. Даже моя магия не смогла сделать тебя достойнее.", "audio": "phobos/blunk_01_start"}],
+      "character_reply": [{"text": "Бланк и не просил! Бланк уже очень достойный!", "audio": "blunk/blunk_01_reply"}],
+      "phobos_counter": [{"text": "Вот этого ответа я и опасался.", "audio": "phobos/blunk_01_counter"}]
+    },
+    {
+      "id": "blunk_02",
+      "character": "blunk",
+      "phobos": [{"text": "Почему из всех существ игра снова выбрала тебя?", "audio": "phobos/blunk_02_start"}],
+      "character_reply": [{"text": "Потому что Бланк — сокровище!", "audio": "blunk/blunk_02_reply"}],
+      "phobos_counter": [{"text": "Это слово явно потеряло всякое значение.", "audio": "phobos/blunk_02_counter"}]
+    }
+  ]
+}

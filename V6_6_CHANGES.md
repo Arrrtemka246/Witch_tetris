@@ -1,0 +1,13 @@
+# v6.6
+- Removed floating square Phobos face overlay from menu; facial assets retained for later seamless compositing.
+- Phobos now appears beside gameplay HUD in phases 0-199 and never covers board cells.
+- Pause is a real menu: CONTINUE / RESTART / MAIN MENU. ESC returns to main menu.
+- Game Over supports return to MAIN MENU.
+- Added first reactive Phobos voice pack.
+- `porn` voice reaction has 1/5 probability; gallery still always opens.
+- Tetris (4-line clear) can trigger “Неплохо, неплохо”.
+- 200-line story checkpoint triggers the rage line.
+- New game can trigger one of the opening Phobos lines.
+- 3 minutes without pausing can trigger the pause hint once per run.
+- Repeated HOLD use can trigger the HOLD remark, with probability/cooldown.
+- Voice cooldown prevents chatter spam.
