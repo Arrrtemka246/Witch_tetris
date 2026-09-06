@@ -39,6 +39,7 @@ class PlaytestFeatures:
         self.room_vtd_entry=None
         self.room_vtd_silent=False
         self.room_vtd_matrix=False
+        self.room_vtd_music_paused=False
 
     def phobos_laugh(self):
         path=self.voice_paths.get('brilliant_laugh')
@@ -104,7 +105,10 @@ class PlaytestFeatures:
                     self.phobos_room_intro_pending=False
                     if self.voice_channel: self.voice_channel.stop()
                     self.queued_voice=None
-                    if pygame.mixer.get_init(): pygame.mixer.music.stop()
+                    self.room_vtd_music_paused=False
+                    if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+                        pygame.mixer.music.pause()
+                        self.room_vtd_music_paused=True
                 else:
                     self.room_say('Код сработал, но банк реплик не найден.')
             else:
@@ -144,11 +148,11 @@ class PlaytestFeatures:
                         reply=[random.choice(reactions)] if reactions else []
                     self.room_vtd_sequence=[]; self.room_vtd_entry=None
                     self.room_say_lines(reply)
-                    room_track=ROOT/'assets/audio/music/phobos_room/PhobosthemeDark.mp3'
-                    if room_track.exists() and pygame.mixer.get_init():
+                    if self.room_vtd_music_paused and pygame.mixer.get_init():
                         try:
-                            pygame.mixer.music.load(str(room_track)); pygame.mixer.music.play(-1); pygame.mixer.music.set_volume(.68)
+                            pygame.mixer.music.unpause(); pygame.mixer.music.set_volume(.68)
                         except pygame.error: pass
+                    self.room_vtd_music_paused=False
             return True
         if self.room_code_buffer:
             self.room_code_idle+=1

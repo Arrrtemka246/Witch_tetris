@@ -19,7 +19,7 @@ from phobos_dialogue import load_phobos_dialogue
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.39-test1"
+BUILD_VERSION = "6.40-test1"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
@@ -660,9 +660,13 @@ class Game(PlaytestFeatures):
         self.minigame = None
         self.collection_cutscene = False
         self.collection_audio_item = None
+        self.collection_music_items = self.scan_collection_music()
         self.collection_gallery_files = []
         self.collection_gallery_title = ""
         self.collection_gallery_parent = "ART & SPRITES"
+        self.records_index = 0
+        self.records_confirm_reset = False
+        self.records_confirm_index = 1
         self.mg_score = 0
         self.mg_tick = 0
         self.mg_player = [450, 760]
@@ -1004,10 +1008,15 @@ class Game(PlaytestFeatures):
             try: self.phobos_room_data = json.loads(rp.read_text(encoding="utf-8"))
             except Exception: pass
         self.phobos_dialogue = load_phobos_dialogue(
-            PHOBOS_ROOM_DIR / "spec" / "PHOBOS_VTD_DIALOGUE_BANK_RU_v2.md"
+            PHOBOS_ROOM_DIR / "spec" / "PHOBOS_VTD_DIALOGUE_BANK_RU_v2.md",
+            PHOBOS_ROOM_DIR / "spec" / "PHOBOS_ROOM_OPENING_CHAINS_RU_v2.md",
         )
         if self.phobos_dialogue["random"]:
             self.phobos_room_data["random_chains"] = self.phobos_dialogue["random"]
+        if self.phobos_dialogue.get("escape"):
+            self.phobos_room_data.setdefault("event_reactions", {})["escape"] = [
+                self.phobos_dialogue["escape"]
+            ]
         self.phobos_last_intro = None
         self.phobos_vtd_recent = []
         self.phobos_room_bg = None
@@ -2430,6 +2439,26 @@ class Game(PlaytestFeatures):
     def game_over_rects(self):
         return [pygame.Rect(WINDOW_W // 2 - 180, WINDOW_H // 2 + 60 + i * 70, 360, 52) for i in range(2)]
 
+    def records_rects(self):
+        return [pygame.Rect(150, 850, 270, 56), pygame.Rect(440, 850, 270, 56)]
+
+    def records_confirm_rects(self):
+        return [pygame.Rect(210, 555, 200, 54), pygame.Rect(450, 555, 200, 54)]
+
+    def open_records(self):
+        self.mode = "records"
+        self.records_index = 0
+        self.records_confirm_reset = False
+        self.records_confirm_index = 1
+
+    def reset_records(self):
+        try:
+            RECORDS_PATH.write_text("[]\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"[records reset] {exc}")
+        self.records_confirm_reset = False
+        self.records_confirm_index = 1
+
     def handle_mouse_motion(self, pos):
         p = self.window_to_canvas(pos)
         if p is None:
@@ -2444,6 +2473,13 @@ class Game(PlaytestFeatures):
             for i, rect in enumerate(self.settings_rects()):
                 if rect.collidepoint(p):
                     self.settings_index=i
+                    return
+        if self.mode == "records":
+            rects = self.records_confirm_rects() if self.records_confirm_reset else self.records_rects()
+            for i, rect in enumerate(rects):
+                if rect.collidepoint(p):
+                    if self.records_confirm_reset: self.records_confirm_index = i
+                    else: self.records_index = i
                     return
         if self.mode == "collection":
             for i, rect in enumerate(self.collection_rects()):
@@ -2496,7 +2532,18 @@ class Game(PlaytestFeatures):
             self.mode = "menu"
             return
         if self.mode == "records":
-            self.mode = "menu"
+            rects = self.records_confirm_rects() if self.records_confirm_reset else self.records_rects()
+            for i, rect in enumerate(rects):
+                if not rect.collidepoint(p): continue
+                if self.records_confirm_reset:
+                    self.records_confirm_index = i
+                    if i == 0: self.reset_records()
+                    else: self.records_confirm_reset = False
+                else:
+                    self.records_index = i
+                    if i == 0: self.records_confirm_reset = True
+                    else: self.mode = "menu"
+                return
             return
         if self.mode == "settings":
             for i, rect in enumerate(self.settings_rects()):
@@ -2529,7 +2576,7 @@ class Game(PlaytestFeatures):
                     self.menu_index = i
                     item = self.menu_items[i]
                     if item == "NEW GAME": self.start_new_game()
-                    elif item == "RECORDS": self.mode = "records"
+                    elif item == "RECORDS": self.open_records()
                     elif item == "SETTINGS": self.mode = "settings"; self.settings_page="root"; self.settings_index=0; self.settings_message=""
                     elif item == "COLLECTION": self.open_collection()
                     else: self.running = False
@@ -2559,7 +2606,26 @@ class Game(PlaytestFeatures):
                 self.mode = "menu"; self.music.set_phase(-1, force=True)
             return True
         if self.mode == "records":
-            if key in (pygame.K_ESCAPE, pygame.K_SPACE, pygame.K_RETURN): self.mode = "menu"
+            if self.records_confirm_reset:
+                if key in (pygame.K_LEFT, pygame.K_a) or scancode == SC_A:
+                    self.records_confirm_index = 0
+                elif key in (pygame.K_RIGHT, pygame.K_d) or scancode == SC_D:
+                    self.records_confirm_index = 1
+                elif key in (pygame.K_SPACE, pygame.K_RETURN):
+                    if self.records_confirm_index == 0: self.reset_records()
+                    else: self.records_confirm_reset = False
+                elif key == pygame.K_ESCAPE:
+                    self.records_confirm_reset = False
+                return True
+            if key in (pygame.K_UP, pygame.K_w) or scancode == SC_W:
+                self.records_index = (self.records_index - 1) % 2
+            elif key in (pygame.K_DOWN, pygame.K_s) or scancode == SC_S:
+                self.records_index = (self.records_index + 1) % 2
+            elif key in (pygame.K_SPACE, pygame.K_RETURN):
+                if self.records_index == 0: self.records_confirm_reset = True
+                else: self.mode = "menu"
+            elif key == pygame.K_ESCAPE:
+                self.mode = "menu"
             return True
         if self.mode == "settings":
             if key == pygame.K_UP: self.settings_index=(self.settings_index-1)%len(self.settings_items())
@@ -2575,7 +2641,7 @@ class Game(PlaytestFeatures):
             self.handle_collection_key(key)
             return True
         if self.mode == "minigame":
-            self.handle_minigame_key(key)
+            self.handle_minigame_key(key, scancode)
             return True
         if self.mode != "menu":
             return False
@@ -2589,7 +2655,7 @@ class Game(PlaytestFeatures):
             item = self.menu_items[self.menu_index]
             if item == "NEW GAME":
                 self.start_new_game()
-            elif item == "RECORDS": self.mode = "records"
+            elif item == "RECORDS": self.open_records()
             elif item == "SETTINGS": self.mode = "settings"; self.settings_page="root"; self.settings_index=0; self.settings_message=""
             elif item == "COLLECTION": self.open_collection()
             else: self.running = False
@@ -4232,25 +4298,47 @@ class Game(PlaytestFeatures):
     def open_collection(self):
         self.mode="collection"; self.collection_page="root"; self.collection_item_index=0
         self.collection_audio_item=None
-        if pygame.mixer.get_init(): pygame.mixer.music.stop()
-        self.music.set_phase(-1, force=True)
+        self.collection_music_items=self.scan_collection_music()
 
-    def gallery_for(self, category):
-        self.collection_gallery_parent=self.collection_page
-        roots=[]
+    def close_collection(self):
+        self.mode="menu"
+        if self.collection_audio_item is not None:
+            self.collection_audio_item=None
+            self.music.set_phase(-1,force=True)
+
+    def scan_collection_music(self):
+        """Return every music track while excluding voices and sound effects."""
+        sources=(
+            ("USER MUSIC",USER_MUSIC_ROOT),
+            ("GAME MUSIC",MUSIC_ROOT),
+            ("MINIGAMES",ASSET_DIR/"audio"/"minigames"),
+            ("COLLECTION",ASSET_DIR/"audio"/"collection"),
+            ("RESERVE",ASSET_DIR/"audio"/"reserve"),
+        )
+        tracks=[]; used_labels=set()
+        for group,root in sources:
+            if not root.exists(): continue
+            for fp in sorted(root.rglob("*"),key=lambda p:str(p).lower()):
+                if not fp.is_file() or fp.suffix.lower() not in SUPPORTED_AUDIO: continue
+                # This file is the room typewriter click, not music.
+                if fp.name.lower()=="phobos_type_tick.wav": continue
+                relative=fp.relative_to(root).with_suffix("").as_posix().replace("_"," ")
+                label=f"{group} — {relative}".upper()
+                if label in used_labels:
+                    label=f"{label} [{len(tracks)+1}]"
+                used_labels.add(label); tracks.append((label,fp))
+        return tracks
+
+    def collection_gallery_paths(self, category):
+        roots=[]; files=[]
         if category=="ACTION POSES":
             files=[
-                LINES100_DIR/"will_action.png",
-                ASSET_DIR/"minigames"/"irma_face.png",
-                LINES100_DIR/"taranee_action.png",
-                LINES100_DIR/"cornelia_action.png",
-                LINES100_DIR/"haylin_action.png",
-                LINES100_DIR/"caleb_action.png",
-                ASSET_DIR/"minigames"/"blunk_face.png",
-                LINES100_DIR/"phobos_action.png",
+                LINES100_DIR/"will_action.png", ASSET_DIR/"minigames"/"irma_face.png",
+                LINES100_DIR/"taranee_action.png", LINES100_DIR/"cornelia_action.png",
+                LINES100_DIR/"haylin_action.png", LINES100_DIR/"caleb_action.png",
+                ASSET_DIR/"minigames"/"blunk_face.png", LINES100_DIR/"phobos_action.png",
             ]
             files=[fp for fp in files if fp.exists()]
-        elif category=="TRANSFORMATIONS": roots=[self.intro_processed_dir]
         elif category=="HORROR TETROMINOES":
             root=ASSET_DIR/"sprites"/"horror"
             files=[root/f"{kind}_rotation_0.png" for kind in ("I","O","T","S","Z","J","L")]
@@ -4259,38 +4347,49 @@ class Game(PlaytestFeatures):
         elif category=="MERIDIAN WINDOWS": roots=[PHOBOS_ROOM_DIR]
         elif category=="FAILED / UNUSED ART": roots=[ASSET_DIR/"sprites"/"horror_sources"]
         elif category=="XXX": roots=[PORN_DIR]
-        if category not in ("ACTION POSES","HORROR TETROMINOES"):
-            files=[]
         for root in roots:
-            if root.exists():
-                for fp in sorted(root.rglob('*')):
-                    if fp.is_file() and fp.suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
-                        if category=="MERIDIAN WINDOWS" and 'meridian_windows' not in fp.name: continue
-                        files.append(fp)
-        self.collection_gallery_files=files
+            if not root.exists(): continue
+            for fp in sorted(root.rglob('*')):
+                if fp.is_file() and fp.suffix.lower() in SUPPORTED_IMAGES:
+                    if category=="MERIDIAN WINDOWS" and 'meridian_windows' not in fp.name: continue
+                    files.append(fp)
+        return files
+
+    def gallery_for(self, category):
+        self.collection_gallery_parent=self.collection_page
+        self.collection_gallery_files=self.collection_gallery_paths(category)
         self.collection_gallery_title=category
         self.collection_page="GALLERY"; self.collection_item_index=0
 
     def collection_current_items(self):
         if self.collection_page == "CUTSCENES": return ["INTRO / OPENING", "100 LINES — RESISTANCE", "200 LINES — CINEMATIC", "BACK"]
         if self.collection_page == "MINIGAMES": return self.minigame_names + ["BACK"]
-        if self.collection_page == "AUDIO": return ["MENU — TRACK 1", "MENU — TRACK 2", "INTRO MUSIC", "PHOBOS 0–99 — ARROGANT PRINCE", "PHOBOS ROOM — DARK THEME", "PHOBOS 200+ — MAIN THEME", "PHASE 2 — TRACK 1", "PHASE 2 — TRACK 2", "PHASE 2 — TRACK 3", "WITCH ENDING", "MINIGAMES MUSIC 1", "MINIGAMES MUSIC 2", "MINIGAMES — FOR ARCADE", "VTD — TRACK 1", "VTD — TRACK 2", "STOP", "BACK"]
-        if self.collection_page == "ART & SPRITES": return ["ACTION POSES", "HORROR TETROMINOES", "PHOBOS ROOM STATES", "MERIDIAN WINDOWS", "BACK"]
-        if self.collection_page == "DEVELOPMENT ARCHIVE": return ["FAILED / UNUSED ART", "XXX", "FACTS & NOTES", "BACK"]
+        if self.collection_page == "AUDIO": return [label for label,_ in self.collection_music_items] + ["STOP", "BACK"]
+        if self.collection_page == "ART & SPRITES":
+            categories=("ACTION POSES","HORROR TETROMINOES","PHOBOS ROOM STATES","MERIDIAN WINDOWS")
+            return [category for category in categories if self.collection_gallery_paths(category)] + ["BACK"]
+        if self.collection_page == "DEVELOPMENT ARCHIVE":
+            categories=("FAILED / UNUSED ART","XXX")
+            return [category for category in categories if self.collection_gallery_paths(category)] + ["BACK"]
         if self.collection_page == "GALLERY": return [fp.name for fp in self.collection_gallery_files] + ["BACK"]
-        return self.collection_sections
+        sections=["CUTSCENES","ART & SPRITES","MINIGAMES"]
+        if self.collection_music_items: sections.insert(2,"AUDIO")
+        if any(self.collection_gallery_paths(category) for category in ("FAILED / UNUSED ART","XXX")):
+            sections.append("DEVELOPMENT ARCHIVE")
+        return sections+["BACK"]
 
     def collection_rects(self):
         items=self.collection_current_items()
-        if self.collection_page=="GALLERY":
+        if self.collection_page in ("GALLERY","AUDIO"):
             start=max(0,min(self.collection_item_index-9,max(0,len(items)-19)))
-            return [pygame.Rect(48,150+(i-start)*38,430,34) if start<=i<start+19 else pygame.Rect(-9999,-9999,1,1) for i in range(len(items))]
+            width=430 if self.collection_page=="GALLERY" else 770
+            return [pygame.Rect(48,150+(i-start)*38,width,34) if start<=i<start+19 else pygame.Rect(-9999,-9999,1,1) for i in range(len(items))]
         return [pygame.Rect(48,169+i*48,800,42) for i in range(len(items))]
 
     def collection_activate(self):
         items=self.collection_current_items(); item=items[self.collection_item_index]
         if item=="BACK":
-            if self.collection_page=="root": self.mode="menu"
+            if self.collection_page=="root": self.close_collection()
             elif self.collection_page=="GALLERY": self.collection_page=self.collection_gallery_parent; self.collection_item_index=0
             else: self.collection_page="root"; self.collection_item_index=0
             return
@@ -4316,7 +4415,7 @@ class Game(PlaytestFeatures):
         if key==pygame.K_UP: self.collection_item_index=(self.collection_item_index-1)%len(items)
         elif key==pygame.K_DOWN: self.collection_item_index=(self.collection_item_index+1)%len(items)
         elif key==pygame.K_ESCAPE:
-            if self.collection_page=="root": self.mode="menu"
+            if self.collection_page=="root": self.close_collection()
             elif self.collection_page=="GALLERY": self.collection_page=self.collection_gallery_parent; self.collection_item_index=0
             else: self.collection_page="root"; self.collection_item_index=0
         elif key in (pygame.K_RETURN,pygame.K_SPACE): self.collection_activate()
@@ -4325,7 +4424,7 @@ class Game(PlaytestFeatures):
         if item=="STOP":
             if pygame.mixer.get_init(): pygame.mixer.music.stop()
             self.collection_audio_item=None; return
-        mapping={"MENU — TRACK 1":ASSET_DIR/"audio"/"music"/"menu"/"menu_1.mp3","MENU — TRACK 2":ASSET_DIR/"audio"/"music"/"menu"/"menu_2.mp3","INTRO MUSIC":ASSET_DIR/"audio"/"collection"/"intro_music.mp3","MINIGAMES MUSIC 1":ASSET_DIR/"audio"/"collection"/"minigames_1.mp3","MINIGAMES MUSIC 2":ASSET_DIR/"audio"/"collection"/"minigames_2.mp3","MINIGAMES — FOR ARCADE":ASSET_DIR/"audio"/"minigames"/"arcade_6.mp3","PHASE 2 — TRACK 1":ASSET_DIR/"audio"/"collection"/"phase2_1.mp3","PHASE 2 — TRACK 2":ASSET_DIR/"audio"/"collection"/"phase2_2.mp3","PHASE 2 — TRACK 3":ASSET_DIR/"audio"/"collection"/"phase2_3.mp3","WITCH ENDING":ASSET_DIR/"audio"/"collection"/"witch_ending.mp3","PHOBOS 0–99 — ARROGANT PRINCE":ASSET_DIR/"audio"/"music"/"phase_0_99_phobos"/"Arrogant_Prince_of_the_Obsidian_Court.mp3","PHOBOS ROOM — DARK THEME":ASSET_DIR/"audio"/"music"/"phobos_room"/"PhobosthemeDark.mp3","PHOBOS 200+ — MAIN THEME":ASSET_DIR/"audio"/"music"/"phobos_route"/"Phobos_main_theme_3_phase.mp3","VTD — TRACK 1":ASSET_DIR/"audio"/"music"/"secrets"/"vtd"/"vtd_01.mp3","VTD — TRACK 2":ASSET_DIR/"audio"/"music"/"secrets"/"vtd"/"vtd_02.mp3"}
+        mapping=dict(self.collection_music_items)
         fp=mapping.get(item,Path("__missing__"))
         if not (fp.exists() and pygame.mixer.get_init()): return
         if self.collection_audio_item==item and pygame.mixer.music.get_busy():
@@ -4380,7 +4479,7 @@ class Game(PlaytestFeatures):
             print(f"[minigame music] {exc}")
 
     def start_minigame(self,name):
-        pygame.mouse.set_visible(True)
+        pygame.mouse.set_visible(False)
         self.music.enter_special()
         self.mode="minigame"; self.minigame=name; self.mg_score=0; self.mg_tick=0; self.mg_over=False; self.mg_gameover_reason=""
         self.mg_lives=1 if "SNAKE" in name else 3; self.mg_max_lives=self.mg_lives; self.mg_combo=0; self.mg_wave=1; self.mg_level=1; self.mg_objects=[]; self.mg_obstacles=[]
@@ -4485,7 +4584,13 @@ class Game(PlaytestFeatures):
             return True
         return False
 
-    def handle_minigame_key(self,key):
+    def handle_minigame_key(self,key,scancode=None):
+        # Normalize arrows, WASD and the same physical ЦФЫВ keys to one set of
+        # directions. Scancodes keep the mapping stable across keyboard layouts.
+        if key==pygame.K_a or scancode==SC_A: key=pygame.K_LEFT
+        elif key==pygame.K_d or scancode==SC_D: key=pygame.K_RIGHT
+        elif key==pygame.K_w or scancode==SC_W: key=pygame.K_UP
+        elif key==pygame.K_s or scancode==SC_S: key=pygame.K_DOWN
         if self.mg_over:
             if key in (pygame.K_SPACE,pygame.K_RETURN): self.start_minigame(self.minigame)
             elif key in (pygame.K_ESCAPE,pygame.K_x): self.leave_minigame()
@@ -4542,10 +4647,15 @@ class Game(PlaytestFeatures):
             elif key in (pygame.K_2,pygame.K_KP2): self.mg_garden_color=1
             elif key in (pygame.K_3,pygame.K_KP3): self.mg_garden_color=2
             elif key==pygame.K_SPACE and self.mg_garden_pulse<=0:
-                targets=[o for o in self.mg_objects if o[2]=="vine" and
-                         (o[0]-self.mg_player[0])**2+(o[1]-self.mg_player[1])**2 < 110**2]
+                # The old hit test used only the moving flower head. Once a
+                # vine grew high enough, Cornelia could stand beside its stem
+                # yet no longer uproot it. Target the full visible stem.
+                def stem_distance_sq(vine):
+                    nearest_y=max(float(vine[1]),min(float(self.mg_player[1]),float(self.mg_arena.bottom-32)))
+                    return (float(vine[0])-self.mg_player[0])**2+(nearest_y-self.mg_player[1])**2
+                targets=[o for o in self.mg_objects if o[2]=="vine" and stem_distance_sq(o)<120**2]
                 if targets:
-                    t=min(targets,key=lambda o:(o[0]-self.mg_player[0])**2+(o[1]-self.mg_player[1])**2)
+                    t=min(targets,key=stem_distance_sq)
                     vine_color=int(t[3]) if len(t)>3 else 0
                     if vine_color != self.mg_garden_color:
                         # A wrong resonance feeds the vine and pushes its head
@@ -4619,19 +4729,23 @@ class Game(PlaytestFeatures):
         if self.mg_over: return
         self.mg_tick+=1; name=self.minigame; self.mg_level=1+self.mg_tick//900
         keys=pygame.key.get_pressed()
+        left_held=bool(keys[pygame.K_LEFT] or keys[pygame.K_a] or SC_A in self.held_scancodes)
+        right_held=bool(keys[pygame.K_RIGHT] or keys[pygame.K_d] or SC_D in self.held_scancodes)
+        up_held=bool(keys[pygame.K_UP] or keys[pygame.K_w] or SC_W in self.held_scancodes)
+        down_held=bool(keys[pygame.K_DOWN] or keys[pygame.K_s] or SC_S in self.held_scancodes)
         arena=getattr(self,"mg_arena",pygame.Rect(70,145,WINDOW_W-140,760))
         if name in ("HEART BREAKER","TARANEE FIRE SHOT","CORNELIA EARTH GARDEN","BLUNK WASHING","IRMA BUBBLE TROUBLE"):
-            dx=(1 if keys[pygame.K_RIGHT] else 0)-(1 if keys[pygame.K_LEFT] else 0)
+            dx=(1 if right_held else 0)-(1 if left_held else 0)
             if name=="HEART BREAKER": self.mg_paddle_x += dx*9
             else: self.mg_player[0] += dx*8
             self.mg_player[0]=max(arena.left+45,min(arena.right-45,self.mg_player[0]))
             if name=="CORNELIA EARTH GARDEN":
-                dy=(1 if keys[pygame.K_DOWN] else 0)-(1 if keys[pygame.K_UP] else 0)
+                dy=(1 if down_held else 0)-(1 if up_held else 0)
                 self.mg_player[1]+=dy*7
                 self.mg_player[1]=max(arena.top+240,min(arena.bottom-55,self.mg_player[1]))
         if name=="CALEB — BAT HUNTER":
-            dx=(1 if keys[pygame.K_RIGHT] else 0)-(1 if keys[pygame.K_LEFT] else 0)
-            dy=(1 if keys[pygame.K_DOWN] else 0)-(1 if keys[pygame.K_UP] else 0)
+            dx=(1 if right_held else 0)-(1 if left_held else 0)
+            dy=(1 if down_held else 0)-(1 if up_held else 0)
             self.mg_player[0]+=dx*8; self.mg_player[1]+=dy*8
             self.mg_player[0]=max(arena.left+55,min(arena.right-275,self.mg_player[0]))
             self.mg_player[1]=max(arena.top+70,min(arena.bottom-70,self.mg_player[1]))
@@ -4740,7 +4854,7 @@ class Game(PlaytestFeatures):
                 self.mg_obstacles.append([float(arena.right-60),self.mg_ground,50,height,False,overhead])
             for o in self.mg_obstacles[:]:
                 o[0]-=speed
-                ducking=self.mg_duck_timer>0 or keys[pygame.K_DOWN]
+                ducking=self.mg_duck_timer>0 or down_held
                 if self.caleb_player_rect(ducking).colliderect(self.caleb_obstacle_rect(o)):
                     self.minigame_game_over("CALEB HIT AN OBSTACLE"); return
                 if o[0]+o[2]<116 and not o[4]: o[4]=True; self.mg_score+=1
@@ -4877,7 +4991,7 @@ class Game(PlaytestFeatures):
                 self.mg_wave+=1; count=min(5,2+self.mg_wave//2); self.mg_bubbles=[[random.randint(180,820),random.randint(190,390),random.choice((-3.5,3.5)),-5.5,48] for _ in range(count)]
         elif name=="IRMA WHIRLPOOL":
             # Arrow keys are held controls, not one-step taps.
-            self.mg_whirl_angle += .004 + ((1 if keys[pygame.K_RIGHT] else 0)-(1 if keys[pygame.K_LEFT] else 0))*.055
+            self.mg_whirl_angle += .004 + ((1 if right_held else 0)-(1 if left_held else 0))*.055
             spawn=max(22,48-self.mg_level*2)
             if self.mg_tick%spawn==0: self.mg_objects.append([385.0,random.uniform(0,6.28),"enemy" if random.random()<.42 else "debris"])
             blasting=self.mg_whirl_mode=="BLAST"
@@ -4969,13 +5083,19 @@ class Game(PlaytestFeatures):
                     shown=pygame.transform.smoothscale(img,(max(1,int(iw*sc)),max(1,int(ih*sc))))
                     old=self.canvas.get_clip(); self.canvas.set_clip(preview.inflate(-6,-6)); self.canvas.blit(shown,shown.get_rect(center=preview.center)); self.canvas.set_clip(old)
                 except (pygame.error,ValueError): pass
+        elif self.collection_page=="AUDIO":
+            start=max(0,min(self.collection_item_index-9,max(0,len(items)-19)))
+            for row,i in enumerate(range(start,min(len(items),start+19))):
+                item=items[i]; y=155+row*38
+                if i==self.collection_item_index: pygame.draw.rect(self.canvas,(82,42,105),(48,y-4,770,32))
+                suffix=""
+                if item==self.collection_audio_item and pygame.mixer.get_init() and pygame.mixer.music.get_busy(): suffix="  [PLAYING]"
+                self.text(("▶ " if i==self.collection_item_index else "  ")+(item+suffix)[:72],58,y,self.small)
         else:
             for i,item in enumerate(items):
                 y=175+i*48
                 if i==self.collection_item_index: pygame.draw.rect(self.canvas,(82,42,105),(48,y-6,800,40))
-                suffix=""
-                if self.collection_page=="AUDIO" and item==self.collection_audio_item and pygame.mixer.get_init() and pygame.mixer.music.get_busy(): suffix="  [PLAYING]"
-                self.text(("▶ " if i==self.collection_item_index else "  ")+item+suffix,62,y,self.small)
+                self.text(("▶ " if i==self.collection_item_index else "  ")+item,62,y,self.small)
         self.text("MOUSE / ↑↓ SELECT   CLICK / SPACE OPEN   ESC BACK",55,970,self.small)
 
     def draw_minigame(self):
@@ -5088,20 +5208,20 @@ class Game(PlaytestFeatures):
             if self.mg_hunter_shot>0:
                 pygame.draw.circle(self.canvas,(255,245,195),aim,112,5)
             self.text(f"COMBO {self.mg_hunter_combo}   MISSED {self.mg_hunter_misses}",65,125,self.small)
-            self.text("MOUSE / ARROWS — AIM CALEB   SPACE / CLICK — STRIKE",100,850,self.small)
+            self.text("MOUSE / ARROWS / WASD (ЦФЫВ) — AIM   SPACE / CLICK — STRIKE",65,850,self.small)
         elif n=="HEART BREAKER":
             for x,y,w,h in self.mg_bricks:
                 r=pygame.Rect(x,y,w,h); pygame.draw.rect(self.canvas,(92,82,86),r); pygame.draw.rect(self.canvas,(145,128,126),r,2)
                 pygame.draw.line(self.canvas,(45,37,42),(r.x+18,r.y+2),(r.x+29,r.y+13),2); pygame.draw.line(self.canvas,(45,37,42),(r.x+29,r.y+13),(r.x+23,r.bottom-2),2); pygame.draw.line(self.canvas,(45,37,42),(r.x+29,r.y+13),(r.x+43,r.y+7),2)
             pygame.draw.rect(self.canvas,(225,185,240),(int(self.mg_paddle_x-self.mg_paddle_w/2),810,int(self.mg_paddle_w),18)); pygame.draw.circle(self.canvas,(250,220,245),(int(self.mg_ball[0]),int(self.mg_ball[1])),10)
-            self.text(f"WAVE {self.mg_wave}   LEFT/RIGHT — PADDLE",65,125,self.small)
+            self.text(f"WAVE {self.mg_wave}   LEFT/RIGHT OR A/D (Ф/В) — PADDLE",65,125,self.small)
         elif n=="TARANEE FIRE SHOT":
             for x,y in self.mg_invaders: pygame.draw.rect(self.canvas,(205,85,75),(int(x-18),int(y-14),36,28))
             mg_sprite("taranee",(int(self.mg_player[0]),790),130,155)
             for x,y,k in self.mg_objects:
                 if k=="shot": pygame.draw.rect(self.canvas,(255,190,90),(int(x-3),int(y-12),6,24))
             for x,y in self.mg_enemy_shots: pygame.draw.circle(self.canvas,(205,70,190),(int(x),int(y)),7)
-            self.text(f"WAVE {self.mg_wave}   LEFT/RIGHT + SPACE — FIRE",65,125,self.small)
+            self.text(f"WAVE {self.mg_wave}   LEFT/RIGHT OR A/D (Ф/В) + SPACE — FIRE",65,125,self.small)
         elif n=="CORNELIA EARTH GARDEN":
             critical=arena.top+185
             pygame.draw.line(self.canvas,(170,55,85),(arena.left,critical),(arena.right,critical),3)
@@ -5138,7 +5258,7 @@ class Game(PlaytestFeatures):
                     pygame.draw.rect(self.canvas,pip,(int(x)-max_hp*6+hit*12,int(y)-28,8,5))
             selected=garden_names[self.mg_garden_color]
             self.text(f"CORRUPTION {int(self.mg_corruption)}%   STREAK {self.mg_garden_streak}   RESONANCE {selected}",85,160,self.small)
-            self.text("ARROWS — MOVE   1/2/3 — COLOUR   SPACE — CLEANSE",85,184,self.small)
+            self.text("ARROWS / WASD (ЦФЫВ) — MOVE   1/2/3 — COLOUR   SPACE — CLEANSE",55,184,self.small)
         elif n=="BLUNK WASHING":
             if "blunk_face" in self.mg_art:
                 src=self.mg_art["blunk_face"]; h=92; w=max(1,int(src.get_width()*h/src.get_height())); im=pygame.transform.smoothscale(src,(w,h)); self.canvas.blit(im,im.get_rect(center=(int(self.mg_player[0]),800)))
@@ -5151,7 +5271,7 @@ class Game(PlaytestFeatures):
             for x,y,vx,vy,size in self.mg_bubbles: pygame.draw.circle(self.canvas,(245,105,45),(int(x),int(y)),int(size)); pygame.draw.circle(self.canvas,(255,210,70),(int(x),int(y)),max(4,int(size*.45)))
             for x,y,k in self.mg_objects:
                 if k=="ray": pygame.draw.line(self.canvas,(160,220,255),(int(x),int(y)),(int(x),805),4)
-            self.text(f"WAVE {self.mg_wave}   LEFT/RIGHT + SPACE — EXTINGUISH FIRE",65,125,self.small)
+            self.text(f"WAVE {self.mg_wave}   LEFT/RIGHT OR A/D (Ф/В) + SPACE — FIRE",65,125,self.small)
         elif n=="IRMA WHIRLPOOL":
             cx,cy=WINDOW_W//2,520; pygame.draw.circle(self.canvas,(80,150,220),(cx,cy),70,4); mg_sprite("irma_face",(cx,cy),62,70)
             ex=cx+math.cos(self.mg_whirl_angle)*155; ey=cy+math.sin(self.mg_whirl_angle)*155; pygame.draw.line(self.canvas,(160,225,255),(cx,cy),(int(ex),int(ey)),4)
@@ -5160,7 +5280,7 @@ class Game(PlaytestFeatures):
                 orb_color=(230,80,100) if k=="enemy" else (70,165,245)
                 pygame.draw.circle(self.canvas,orb_color,(int(x),int(y)),12)
                 if k!="enemy": pygame.draw.circle(self.canvas,(175,225,255),(int(x)-3,int(y)-3),4)
-            self.text("LEFT/RIGHT — AIM WATER   SPACE — BLAST RED HAZARDS",65,125,self.small)
+            self.text("LEFT/RIGHT OR A/D (Ф/В) — AIM   SPACE — BLAST",65,125,self.small)
         elif n=="BLUNK TREASURE ESCAPE":
             draw_treasure(self)
         elif n=="CORNELIA STONE COVERS":
@@ -5172,16 +5292,22 @@ class Game(PlaytestFeatures):
                 pygame.draw.circle(self.canvas,(150,110,165),(x,road_y+27),49,3)
                 mg_sprite(guardian_keys[i],(x,road_y+24),78,82)
                 if i==self.mg_gw_cover:
-                    shield=pygame.Rect(x-57,road_y-42,114,116)
-                    pygame.draw.arc(self.canvas,(205,180,145),shield,math.pi,2*math.pi,10)
-                    pygame.draw.ellipse(self.canvas,(133,114,105),(x-55,road_y+57,110,22))
-                    pygame.draw.ellipse(self.canvas,(205,180,145),(x-55,road_y+57,110,22),4)
+                    # Draw the cover after the Guardian: its solid front must
+                    # visibly protect the portrait instead of looking like a
+                    # pedestal hidden underneath it.
+                    shield=pygame.Rect(x-59,road_y-46,118,122)
+                    pygame.draw.arc(self.canvas,(225,202,166),shield,math.pi,2*math.pi,11)
+                    front=pygame.Rect(x-57,road_y+18,114,66)
+                    pygame.draw.rect(self.canvas,(133,114,105),front,border_radius=24)
+                    pygame.draw.ellipse(self.canvas,(173,150,128),(x-57,road_y+5,114,46))
+                    pygame.draw.arc(self.canvas,(225,202,166),(x-57,road_y+5,114,46),math.pi,2*math.pi,5)
+                    pygame.draw.rect(self.canvas,(205,180,145),front,4,border_radius=24)
             for lane,remaining in self.mg_objects:
                 y=max(arena.top+90,road_y-80-int(remaining)*5)
                 pygame.draw.circle(self.canvas,(232,202,166),(xs[lane],y),20)
                 pygame.draw.line(self.canvas,(232,202,166),(xs[lane],y+20),(xs[lane],y+55),7)
             mg_sprite("cornelia",(WINDOW_W//2,390),165,225)
-            self.text("LEFT/RIGHT — MOVE THE EARTH COVER",205,850,self.small)
+            self.text("LEFT/RIGHT OR A/D (Ф/В) — MOVE THE EARTH COVER",120,850,self.small)
         elif n=="IRMA DARK WATER PANIC":
             xs=(130,280,430,580,730)
             for x in xs: pygame.draw.line(self.canvas,(50,70,95),(x,arena.top+25),(x,arena.bottom-90),2)
@@ -5199,7 +5325,7 @@ class Game(PlaytestFeatures):
                 pygame.draw.circle(self.canvas,(75,55,62),(gx,875),20); pygame.draw.rect(self.canvas,(82,60,68),(gx-18,888,36,25))
             irma_level,_,_=irma_dark_water_curve(self.mg_tick)
             self.text(f"VESSEL {self.mg_gw_stored}/3   LANE {self.mg_gw_lane+1}/5   LEVEL {irma_level}",130,125,self.small)
-            self.text("LEFT/RIGHT — CATCH   SPACE — DUMP AT 3",205,850,self.small)
+            self.text("LEFT/RIGHT OR A/D (Ф/В) — CATCH   SPACE — DUMP AT 3",125,850,self.small)
         else:
             bx,by,cs=330,175,34
             pygame.draw.rect(self.canvas,(5,5,8),(bx,by,10*cs,18*cs)); pygame.draw.rect(self.canvas,(100,90,105),(bx,by,10*cs,18*cs),2)
@@ -5314,8 +5440,24 @@ class Game(PlaytestFeatures):
                 line = f"{i:02d}.   LINES {rec.get('lines',0):3d}     SCORE {rec.get('score',0):6d}"
                 surf = self.font.render(line, True, COLORS["text"])
                 self.canvas.blit(surf, (205, 190 + (i-1)*62))
-        back = self.small.render("SPACE / ENTER / ESC — BACK", True, COLORS["text"])
-        self.canvas.blit(back, back.get_rect(center=(WINDOW_W//2, WINDOW_H-70)))
+        labels = ("RESET RECORDS", "BACK")
+        for i, rect in enumerate(self.records_rects()):
+            if i == self.records_index and not self.records_confirm_reset:
+                pygame.draw.rect(self.canvas, (82,42,105), rect, border_radius=8)
+            pygame.draw.rect(self.canvas, (120,85,140), rect, 2, border_radius=8)
+            label = self.font.render(labels[i], True, COLORS["text"])
+            self.canvas.blit(label, label.get_rect(center=rect.center))
+        if self.records_confirm_reset:
+            shade=pygame.Surface((WINDOW_W,WINDOW_H),pygame.SRCALPHA); shade.fill((0,0,0,165)); self.canvas.blit(shade,(0,0))
+            box=pygame.Rect(135,365,590,280); pygame.draw.rect(self.canvas,(20,12,31),box,border_radius=12); pygame.draw.rect(self.canvas,(150,90,175),box,3,border_radius=12)
+            prompt=self.font.render("RESET ALL RECORDS?",True,COLORS["accent"]); self.canvas.blit(prompt,prompt.get_rect(center=(WINDOW_W//2,445)))
+            warning=self.small.render("THIS ACTION CANNOT BE UNDONE",True,COLORS["text"]); self.canvas.blit(warning,warning.get_rect(center=(WINDOW_W//2,495)))
+            for i, rect in enumerate(self.records_confirm_rects()):
+                if i == self.records_confirm_index: pygame.draw.rect(self.canvas,(82,42,105),rect,border_radius=8)
+                pygame.draw.rect(self.canvas,(120,85,140),rect,2,border_radius=8)
+                label=self.font.render(("YES","NO")[i],True,COLORS["text"]); self.canvas.blit(label,label.get_rect(center=rect.center))
+        hint = self.small.render("ARROWS / WASD — SELECT   SPACE / ENTER — CONFIRM   ESC — BACK", True, COLORS["text"])
+        self.canvas.blit(hint, hint.get_rect(center=(WINDOW_W//2, WINDOW_H-55)))
 
     def draw(self):
         if self.meta_video_name:

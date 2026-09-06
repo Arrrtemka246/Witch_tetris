@@ -34,7 +34,30 @@ def _speaker_lines(text: str) -> list[str]:
     return lines[:4]
 
 
-def load_phobos_dialogue(path: Path) -> dict:
+def _numbered_lines(section: str) -> list[str]:
+    return [match.group(1).strip() for match in re.finditer(r"(?m)^\s*\d+\.\s+(.+?)\s*$", section)]
+
+
+def load_opening_chains(path: Path) -> tuple[list[dict], list[str]]:
+    """Parse the authored nine intros and the Escape-only reaction."""
+    try:
+        source=path.read_text(encoding="utf-8")
+    except OSError:
+        return [],[]
+    intros=[]; escape=[]
+    sections=re.split(r"(?m)(?=^#\s+INTRO-|^#\s+EVENT-ESCAPE-)",source)
+    for section in sections:
+        heading=section.splitlines()[0] if section.splitlines() else ""
+        intro=re.search(r"INTRO-(\d+)",heading)
+        lines=_numbered_lines(section.split("**ФОБОС:**",1)[-1])
+        if intro and lines:
+            intros.append({"id":f"opening-{intro.group(1)}","lines":lines})
+        elif "EVENT-ESCAPE-" in heading and lines:
+            escape=lines
+    return intros,escape
+
+
+def load_phobos_dialogue(path: Path, opening_path: Path | None = None) -> dict:
     """Read the authored Markdown bank without a fragile generated JSON copy."""
     result = {"intros": [], "random": [], "vtd": [], "reactions": PHOBOS_FALLBACK_REACTIONS[:]}
     try:
@@ -67,4 +90,8 @@ def load_phobos_dialogue(path: Path) -> dict:
                 number = vtd.group(1) or vtd.group(2)
                 prefix = "base" if vtd.group(1) else "pool"
                 result["vtd"].append({"id": f"{prefix}-{number}", "lines": lines, "reply": reply})
+    if opening_path is not None:
+        intros,escape=load_opening_chains(opening_path)
+        if intros: result["intros"]=intros
+        if escape: result["escape"]=escape
     return result
