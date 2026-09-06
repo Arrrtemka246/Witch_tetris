@@ -9,13 +9,17 @@ from pathlib import Path
 
 import pygame
 
+from treasure_octopus import TreasureOctopus, draw_treasure
+from playtest_features import PlaytestFeatures, CLEAR_CODES, PHOBOS_CODES
+from phobos_dialogue import load_phobos_dialogue
+
 # ============================================================
-# W.I.T.C.H. Tetris — Pygame build v6.37.1
+# W.I.T.C.H. Tetris — Pygame build v6.38-test2
 # Full-color 50x50 source cells, auto-fit, transparency, Hold, story checkpoints and secret-code system.
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.37.1"
+BUILD_VERSION = "6.39-test1"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
@@ -44,12 +48,13 @@ MENU_DIR = ASSET_DIR / "menu"
 PHOBOS_MENU_DIR = MENU_DIR / "phobos"
 PHOBOS_FACE_DIR = PHOBOS_MENU_DIR / "faces"
 MUSIC_ROOT = ASSET_DIR / "audio" / "music"
+USER_MUSIC_ROOT = ASSET_DIR / "audio" / "user_music"
 PHASE_MUSIC = {
     -1: MUSIC_ROOT / "menu",
-    0: MUSIC_ROOT / "phase_0_99_phobos",
-    1: MUSIC_ROOT / "phase_100_199_resistance",
-    2: MUSIC_ROOT / "phase_200_plus_guardians",
-    3: MUSIC_ROOT / "phobos_route",
+    0: USER_MUSIC_ROOT / "phase1",
+    1: USER_MUSIC_ROOT / "phase2",
+    2: USER_MUSIC_ROOT / "guardians",
+    3: USER_MUSIC_ROOT / "phobos",
 }
 PHASE_MUSIC_FALLBACKS = {
     # Until a separate Guardians soundtrack is supplied, the established
@@ -606,7 +611,7 @@ class SpriteSet:
         return img if img is not None else self.phase_sets[0]["pieces"][kind][rotation]
 
 
-class Game:
+class Game(PlaytestFeatures):
     def __init__(self):
         pygame.init()
         try:
@@ -650,7 +655,7 @@ class Game:
         self.collection_page = "root"
         self.collection_item_index = 0
         self.collection_items = []
-        self.minigame_names = ["SNAKE — BLUNK/CEDRIC/PHOBOS", "WILL MAZE", "HAY LIN FLIGHT", "CALEB RUNNER", "HEART BREAKER", "TARANEE FIRE SHOT", "CORNELIA EARTH GARDEN", "BLUNK WASHING", "IRMA BUBBLE TROUBLE", "IRMA WHIRLPOOL", "BLUNK TREASURE ESCAPE", "CORNELIA STONE COVERS", "IRMA DARK WATER PANIC", "PHOBOS TETRIS ???"]
+        self.minigame_names = ["SNAKE — BLUNK/CEDRIC/PHOBOS", "WILL MAZE", "HAY LIN FLIGHT", "CALEB RUNNER", "CALEB — BAT HUNTER", "HEART BREAKER", "TARANEE FIRE SHOT", "CORNELIA EARTH GARDEN", "BLUNK WASHING", "IRMA BUBBLE TROUBLE", "IRMA WHIRLPOOL", "BLUNK TREASURE ESCAPE", "CORNELIA STONE COVERS", "IRMA DARK WATER PANIC", "PHOBOS TETRIS ???"]
         self.minigame_index = 0
         self.minigame = None
         self.collection_cutscene = False
@@ -863,6 +868,8 @@ class Game:
             "jetix": "jetix",
             "джетикс": "jetix",
         }
+        self.secret_codes.update({code: "clear_board" for code in CLEAR_CODES})
+        self.secret_codes.update({code: "phobos_thanks" for code in PHOBOS_CODES})
         self.secret_buffer = ""
         self.physical_secret_buffer = ""
         self.secret_buffer_limit = max(len(code) for code in self.secret_codes) + 8
@@ -996,6 +1003,13 @@ class Game:
         if rp.exists():
             try: self.phobos_room_data = json.loads(rp.read_text(encoding="utf-8"))
             except Exception: pass
+        self.phobos_dialogue = load_phobos_dialogue(
+            PHOBOS_ROOM_DIR / "spec" / "PHOBOS_VTD_DIALOGUE_BANK_RU_v2.md"
+        )
+        if self.phobos_dialogue["random"]:
+            self.phobos_room_data["random_chains"] = self.phobos_dialogue["random"]
+        self.phobos_last_intro = None
+        self.phobos_vtd_recent = []
         self.phobos_room_bg = None
         # v6.37.1 room composite: the supplied interior, fiery Meridian view
         # and table are one stable background, so they cannot drift apart.
@@ -1059,6 +1073,23 @@ class Game:
             if fp.exists():
                 try: self.mg_art[key] = load_clean_alpha(fp)
                 except pygame.error: pass
+        self.mg_hunter_poses=[]
+        for fp in sorted((mg_art_dir/"hunter").glob("hunter_pose_*.png")):
+            try: self.mg_hunter_poses.append(load_clean_alpha(fp))
+            except pygame.error: pass
+        self.mg_bat_frames=[]
+        bat_sheet_fp=mg_art_dir/"hunter"/"bats.png"
+        if bat_sheet_fp.exists():
+            try:
+                sheet=pygame.image.load(str(bat_sheet_fp)).convert_alpha()
+                cw,ch=sheet.get_width()//3,sheet.get_height()//2
+                for row in range(2):
+                    for column in range(3):
+                        frame=sheet.subsurface(pygame.Rect(column*cw,row*ch,cw,ch)).copy()
+                        bounds=frame.get_bounding_rect(min_alpha=8)
+                        if bounds.width and bounds.height:
+                            self.mg_bat_frames.append(frame.subsurface(bounds).copy())
+            except pygame.error: self.mg_bat_frames=[]
         if "taranee" in self.mg_art:
             self.mg_art["taranee_face"] = self.mg_art["taranee"].copy()
         # Runner/shooter/garden need the supplied full-body action poses rather
@@ -1109,6 +1140,7 @@ class Game:
         self.music.stop()
 
     def reset(self):
+        self.reset_playtest()
         if getattr(self, "vtd_channel", None):
             self.vtd_channel.stop()
         self.vtd_active = False
@@ -1421,6 +1453,8 @@ class Game:
         return max(3, 8 - (speed_lines - 200) // 50)
 
     def play_voice(self, name, force=False):
+        if self.vtd_active:
+            return False
         # v6.33 hard safety: the spoken line “Заклинание Фобоса рушится” is forbidden everywhere.
         banned = {"phobos_spell_break", "spell_break", "zaklinanie_fobosa_rushitsya"}
         if str(name).lower() in banned:
@@ -1445,6 +1479,8 @@ class Game:
             return False
 
     def play_external_voice(self, path, force=False):
+        if self.vtd_active:
+            return False
         if path and ("phobos_spell_break" in str(path).lower() or "заклинание фобоса руш" in str(path).lower()):
             return False
         # Once the Guardians win, Phobos is completely gone from gameplay audio,
@@ -1472,6 +1508,8 @@ class Game:
             return False
 
     def play_voice_if_idle(self, name):
+        if self.vtd_active:
+            return False
         """Play a hint despite the long global cooldown, but never interrupt speech already playing."""
         if self.guardians_route:
             return False
@@ -1491,6 +1529,8 @@ class Game:
             return False
 
     def queue_external_voice(self, path, delay_frames=0):
+        if self.vtd_active:
+            return False
         try:
             is_phobos = VOICE_DIR in path.parents or path.parent == VOICE_DIR
             is_guardian = (VOICE_DIR.parent / "guardians") in path.parents
@@ -1504,7 +1544,7 @@ class Game:
         self.queued_voice_delay = max(0, delay_frames)
 
     def random_piece(self):
-        """Select a piece using the configured Phobos or two-bag randomizer."""
+        """Select a piece using the configured Phobos or independent bag randomizer."""
         candidates = [k for k in PIECES if self.character_enabled.get(k, True)]
         if not candidates:
             return None
@@ -1513,19 +1553,9 @@ class Game:
             if signature != self.classic_piece_signature:
                 self.classic_piece_signature = signature
                 self.classic_piece_queue = []
-            # Keep two complete shuffled bags queued. Each enabled shape is
-            # seen once per bag, and the boundary is swapped when it would
-            # repeat the last shape from the previous bag.
             if not self.classic_piece_queue:
-                previous = self.spawn_history[-1] if self.spawn_history else None
-                for _ in range(2):
-                    bag = candidates[:]
-                    random.shuffle(bag)
-                    boundary = self.classic_piece_queue[-1] if self.classic_piece_queue else previous
-                    if boundary and len(bag) > 1 and bag[0] == boundary:
-                        swap_at = next(i for i, kind in enumerate(bag[1:], 1) if kind != bag[0])
-                        bag[0], bag[swap_at] = bag[swap_at], bag[0]
-                    self.classic_piece_queue.extend(bag)
+                self.classic_piece_queue=candidates[:]
+                random.shuffle(self.classic_piece_queue)
             return self.classic_piece_queue.pop(0)
         # Default Phobos mode: controlled chaos with drought protection, but
         # up to three deliberate repeats are still possible.
@@ -1599,6 +1629,7 @@ class Game:
             self.last_seen_piece[kind] = self.piece_serial
             self.next_kind = self.random_piece()
         self.current = {"kind": kind, "rot": 0, "x": 3, "y": 0}
+        self.reset_classic_lock()
         self.rotation_count = 0
         self.hold_used = False
         self.maybe_character_voice(kind)
@@ -1631,13 +1662,15 @@ class Game:
     def move(self, dx, dy):
         if self.current is None:
             return False
+        was_grounded=self.collides(self.current["x"],self.current["y"]+1,self.current["rot"])
         nx, ny = self.current["x"] + dx, self.current["y"] + dy
         if not self.collides(nx, ny, self.current["rot"]):
             self.current["x"], self.current["y"] = nx, ny
+            if dx: self.classic_adjusted(was_grounded)
             return True
         return False
 
-    def rotate(self):
+    def rotate(self, direction=1):
         if self.current is None:
             return False
         self.rotation_count += 1
@@ -1649,14 +1682,16 @@ class Game:
                 self.rotation_count = -999
                 # Five subsequent spawned pieces are immune to this particular hint.
                 self.rotation_hint_block_pieces = 6
-        nr = (self.current["rot"] + 1) % 4
+        was_grounded=self.collides(self.current["x"],self.current["y"]+1,self.current["rot"])
+        nr = (self.current["rot"] + direction) % 4
         # Small wall-kick set, enough for the current prototype.
         for kick in (0, -1, 1, -2, 2):
             nx = self.current["x"] + kick
             if not self.collides(nx, self.current["y"], nr):
                 self.current["x"] = nx
                 self.current["rot"] = nr
-                return
+                self.classic_adjusted(was_grounded)
+                return True
 
     def hard_drop(self):
         if self.current is None:
@@ -1680,6 +1715,7 @@ class Game:
             swap = self.hold_kind
             self.hold_kind = current_kind
             self.current = {"kind": swap, "rot": 0, "x": 3, "y": 0}
+            self.reset_classic_lock()
             if self.collides(self.current["x"], self.current["y"], 0):
                 self.game_over = True
                 if self.phobos_route and self.story_winner == "phobos":
@@ -1791,7 +1827,7 @@ class Game:
             self.story200_stage = "cinematic_reverse"
             self.story200_tick = 0
             self.winner_choice = 0
-            self.music.pause()
+            self.music.enter_special()
         elif self.phobos_route and self.lines >= 300 and 300 not in self.story_seen:
             self.enter_phobos_room("lines")
         elif self.phase_index() != old_phase:
@@ -1899,9 +1935,9 @@ class Game:
                     self.music.enter_special()
                     self.vtd_current = random.choice(files)
                     snd = pygame.mixer.Sound(str(self.vtd_current))
-                    self.vtd_channel.stop(); self.vtd_channel.play(snd, loops=-1)
+                    self.vtd_channel.stop(); self.vtd_channel.play(snd)
                     self.vtd_active = True
-                    self.vtd_locked = True
+                    self.silence_for_vtd()
                     self.vtd_intro_timer = int(FPS * 0.35)
                 except pygame.error:
                     pass
@@ -1975,7 +2011,14 @@ class Game:
         self.secret_cooldown = 12
         self.secret_buffer = ""
         self.physical_secret_buffer = ""
-        if action == "porn_gallery":
+        if action == "phobos_thanks":
+            self.phobos_laugh()
+        elif action == "clear_board":
+            self.board=[[None for _ in range(BOARD_W)] for _ in range(BOARD_H)]
+            self.pending_clear=None
+            self.cheat_notice=FPS*3
+            self.reset_classic_lock()
+        elif action == "porn_gallery":
             files = self.secret_image_files()
             if len(files) > 1 and self.last_secret_image in files:
                 files = [f for f in files if f != self.last_secret_image]
@@ -2009,6 +2052,7 @@ class Game:
                     self.vtd_channel.stop()
                     self.vtd_channel.play(snd)
                     self.vtd_active = True
+                    self.silence_for_vtd()
                     if self.mode == "menu":
                         self.menu_secret_vtd_pending = True
                     self.vtd_intro_timer = int(FPS * 0.35)
@@ -2139,7 +2183,7 @@ class Game:
             self.story200_stage = "cinematic_reverse"
             self.story200_tick = 0
             self.winner_choice = 0
-            self.music.pause()
+            self.music.enter_special()
         elif self.phobos_route and self.lines >= 300 and 300 not in self.story_seen:
             self.enter_phobos_room("developer_lines")
         elif self.phase_index() != old_phase:
@@ -2391,10 +2435,6 @@ class Game:
         if p is None:
             return
         if self.mode == "game" and self.story_overlay == 100:
-            if self.story100_stage == "wait_key":
-                self.story100_stage = "after_key"
-                self.story100_tick = 0
-                self.story100_sfx_played.clear()
             return
         if self.mode == "game" and self.story_overlay == 200 and self.story200_stage == "choice":
             box_w, gap=310,36; start_x=(WINDOW_W-(box_w*2+gap))//2
@@ -2411,7 +2451,11 @@ class Game:
         if self.mode == "minigame":
             if self.mg_over:
                 return
-            # Mouse remains usable where horizontal movement is meaningful; gameplay never relies on it.
+            if self.minigame == "CALEB — BAT HUNTER":
+                arena=self.mg_arena
+                self.mg_player[0]=max(arena.left+55,min(arena.right-275,p[0]))
+                self.mg_player[1]=max(arena.top+70,min(arena.bottom-70,p[1]))
+                return
             if self.minigame in ("HEART BREAKER","TARANEE FIRE SHOT","CORNELIA EARTH GARDEN","BLUNK WASHING","IRMA BUBBLE TROUBLE"):
                 self.mg_player[0]=max(85,min(WINDOW_W-85,p[0]))
                 if self.minigame=="HEART BREAKER": self.mg_paddle_x=self.mg_player[0]
@@ -2473,7 +2517,10 @@ class Game:
                 self.mg_player[0]=max(85,min(WINDOW_W-85,p[0]))
                 if self.minigame=="HEART BREAKER": self.mg_paddle_x=self.mg_player[0]
             # Clicking performs the primary action where there is one.
-            if self.minigame in ("HAY LIN FLIGHT","TARANEE FIRE SHOT","CORNELIA EARTH GARDEN","IRMA BUBBLE TROUBLE","IRMA WHIRLPOOL","PHOBOS TETRIS ???"):
+            if self.minigame == "CALEB — BAT HUNTER":
+                self.mg_player[0]=max(self.mg_arena.left+55,min(self.mg_arena.right-275,p[0]))
+                self.mg_player[1]=max(self.mg_arena.top+70,min(self.mg_arena.bottom-70,p[1]))
+            if self.minigame in ("HAY LIN FLIGHT","TARANEE FIRE SHOT","CORNELIA EARTH GARDEN","IRMA BUBBLE TROUBLE","IRMA WHIRLPOOL","PHOBOS TETRIS ???","CALEB — BAT HUNTER"):
                 self.handle_minigame_key(pygame.K_SPACE)
             return
         if self.mode == "menu":
@@ -2582,9 +2629,10 @@ class Game:
 
         # The Phobos room is outside the normal game. Handle its local key
         # reactions before the global secret-code buffers, so MATRIX, PORN,
-        # JETIX, VTD and their Russian aliases cannot activate here.
+        # JETIX cannot activate here; VTD has a separate room-only reaction.
         if self.story_overlay == 300:
-            self.react_phobos_room_key(key, unicode_char, mod, scancode)
+            if not self.feed_room_code(unicode_char):
+                self.react_phobos_room_key(key, unicode_char, mod, scancode)
             return
 
         # Secret words belong only to live Tetris. Menus, pause, Game Over,
@@ -2640,6 +2688,9 @@ class Game:
                             pass
                 return
             if self.story_overlay == 200:
+                if self.story200_stage in ("guardians_win","phobos_win"):
+                    if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE): self.continue_after_story200()
+                    return
                 cinematic_order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
                 if key in (pygame.K_x, pygame.K_ESCAPE) or scancode == SC_X:
                     if self.collection_cutscene:
@@ -2738,12 +2789,13 @@ class Game:
         elif key == pygame.K_UP:
             self.hard_drop()
         elif scancode in (SC_W, SC_X, SC_Z):
-            self.rotate()
+            self.rotate(-1 if self.figure_fall_mode == "classic" and scancode == SC_Z else 1)
         elif scancode in (SC_C, SC_LSHIFT, SC_RSHIFT) or key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
             self.hold()
 
     def update(self):
         self.menu_tick += 1
+        self.cheat_notice=max(0,self.cheat_notice-1)
         if not self.secret_gameplay_context() and (
             self.secret_overlay is not None or self.matrix_timer > 0
             or self.jetix_timer > 0 or self.vtd_active
@@ -2833,10 +2885,13 @@ class Game:
             return
         if self.story_overlay == 200:
             self.story200_tick += 1
+            if self.update_victory():
+                return
             auto={"cinematic_reverse":int(FPS*3.2),"cinematic_heart":int(FPS*3.0),"cinematic_phobos":int(FPS*3.0),"cinematic_break":int(FPS*3.0)}
             if self.story200_stage in auto and self.story200_tick >= auto[self.story200_stage]:
                 if self.collection_cutscene and self.story200_stage=="cinematic_break":
-                    self.story_overlay=None; self.collection_cutscene=False; self.mode="collection"; self.collection_page="CUTSCENES"; self.collection_item_index=0; self.music.set_phase(-1,force=True); return
+                    self.story_overlay=None; self.collection_cutscene=False; self.mode="collection"; self.collection_page="CUTSCENES"; self.collection_item_index=0
+                    self.music.leave_special(restart=False); self.music.set_phase(-1,force=True); return
                 order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
                 self.story200_stage=order[order.index(self.story200_stage)+1]; self.story200_tick=0
                 return
@@ -2847,6 +2902,8 @@ class Game:
                 self.story200_tick = 0
             return
         if self.story_overlay == 300:
+            if self.update_room_code():
+                return
             self.phobos_room_tick += 1
             if self.phobos_room_stage == "crash":
                 if self.phobos_room_tick >= int(FPS * 1.6):
@@ -2865,7 +2922,11 @@ class Game:
                 now=pygame.time.get_ticks()
                 if getattr(self, "phobos_room_intro_pending", False):
                     self.phobos_room_intro_pending=False
-                    self.phobos_room_chain={"id":"room_intro","lines":["Ну вот. Я всё испортил, как и обещал.","Играть мне надоело.","Можем просто посидеть здесь немного. Если хочешь — поговорим."]}
+                    intros=list(self.phobos_dialogue.get("intros",[]))
+                    eligible=[entry for entry in intros if entry.get("id")!=self.phobos_last_intro] or intros
+                    self.phobos_room_chain=random.choice(eligible) if eligible else {
+                        "id":"room_intro_fallback","lines":["Ты хотел концовку Фобоса. Вот она."]}
+                    self.phobos_last_intro=self.phobos_room_chain.get("id")
                     self.phobos_room_line=0; self.phobos_room_type_started_ms=now; self.phobos_room_type_complete=False; self.phobos_room_next_ms=10**12
                     room_track=ASSET_DIR/"audio"/"music"/"phobos_room"/"PhobosthemeDark.mp3"
                     if room_track.exists() and pygame.mixer.get_init():
@@ -2922,8 +2983,9 @@ class Game:
         interval = SOFT_DROP_FRAMES if (keys[pygame.K_DOWN] or SC_S in self.held_scancodes) else self.fall_interval()
         if self.frame_counter >= interval:
             self.frame_counter = 0
-            if not self.move(0, 1):
+            if not self.move(0, 1) and self.figure_fall_mode != "classic":
                 self.lock_piece()
+        self.classic_update(keys)
 
     def vtd_tint(self, surface):
         if surface is None or not self.vtd_active:
@@ -2952,6 +3014,7 @@ class Game:
                     else:
                         pygame.draw.rect(self.canvas, (45,255,90) if self.vtd_active else COLORS["accent"], r)
                 pygame.draw.rect(self.canvas, grid_col, r, 1)
+        self.draw_classic_ghost()
         if not self.pending_clear and self.current is not None:
             if self.vtd_active:
                 img = self.sprites.piece_image(self.current["kind"], self.current["rot"], self.phase_index(), horror=self.horror_piece_mode and self.phobos_route)
@@ -3105,10 +3168,6 @@ class Game:
                         cell["surface"] = None; cell["plain"] = True
             if self.voice_channel: self.voice_channel.stop()
             self.story200_stage = "guardians_win"
-            ending = ASSET_DIR / "audio" / "collection" / "witch_ending.mp3"
-            if ending.exists() and pygame.mixer.get_init():
-                try: pygame.mixer.music.stop(); pygame.mixer.music.load(str(ending)); pygame.mixer.music.play(-1); pygame.mixer.music.set_volume(.78)
-                except pygame.error: pass
         else:
             self.story_winner = "phobos"
             self.guardians_route = False
@@ -3128,21 +3187,21 @@ class Game:
                         if cell is not None:
                             cell["surface"] = None
                             cell["plain"] = True
-            self.story200_stage = "phobos_win" if self.horror_piece_mode else "phobos_split"
-            laugh = self.voice_paths.get("brilliant_laugh")
-            if laugh and laugh.exists(): self.play_external_voice(laugh, force=True)
-        self.story200_tick = 0
+            self.story200_stage = "phobos_win"
+        self.prepare_victory()
 
     def continue_after_story200(self):
         self.story_overlay = None
+        self.music.leave_special(restart=False)
         self.music.set_phase(3 if self.phobos_route else 2, force=True)
-        self.music.resume()
 
     def draw_story200(self):
         # The route takes over the palette immediately after the choice.
         self.draw_background(1 if self.phobos_route and self.story200_stage != "choice" else 2)
         shade=pygame.Surface((WINDOW_W,WINDOW_H),pygame.SRCALPHA); shade.fill((0,0,0,165)); self.canvas.blit(shade,(0,0))
         self.ensure_story100_assets()
+        if self.draw_victory():
+            return
         if self.story200_stage == "cinematic_reverse":
             title=self.small.render("200 LINES — THE SPELL BREAKS",True,(225,175,255)); self.canvas.blit(title,title.get_rect(center=(WINDOW_W//2,80)))
             active=self.active_intro_characters(); progress=min(1.0,self.story200_tick/max(1,FPS*3.2))
@@ -3294,6 +3353,8 @@ class Game:
                 self.canvas.blit(outside, destination, source)
 
     def draw_phobos_room(self):
+        if self.draw_room_cameo():
+            return
         if self.phobos_room_stage == "crash":
             self.draw_background(1)
             shade=pygame.Surface((WINDOW_W,WINDOW_H),pygame.SRCALPHA); shade.fill((0,0,0,110)); self.canvas.blit(shade,(0,0))
@@ -3385,6 +3446,8 @@ class Game:
     def draw_secret_effects(self):
         if not self.secret_gameplay_context():
             return
+        if self.cheat_notice:
+            self.draw_wrapped_center("ТАК НЕЧЕСТНО",460,WINDOW_W-70,self.big,(255,205,110))
         if self.matrix_timer > 0 or self.vtd_active:
             green = (40, 255, 90)
             # MATRIX is interface-only; VTD additionally recolors the whole gameplay render.
@@ -3546,6 +3609,7 @@ class Game:
 
     def start_story100(self):
         self.ensure_story100_assets()
+        self.music.enter_special()
         self.story_overlay = 100
         self.story100_stage = "glitch"
         self.story100_tick = 0
@@ -3616,6 +3680,7 @@ class Game:
         self.story_overlay = None
         self.story100_stage = "done"
         self.story100_tick = 0
+        self.music.leave_special(restart=False)
         if self.collection_cutscene:
             self.collection_cutscene=False; self.mode="collection"; self.collection_page="CUTSCENES"; self.collection_item_index=0
             self.music.set_phase(-1,force=True)
@@ -4193,7 +4258,7 @@ class Game:
         elif category=="PHOBOS ROOM STATES": roots=[PHOBOS_ROOM_DIR/"states"]
         elif category=="MERIDIAN WINDOWS": roots=[PHOBOS_ROOM_DIR]
         elif category=="FAILED / UNUSED ART": roots=[ASSET_DIR/"sprites"/"horror_sources"]
-        elif category=="SCREENSHOTS": roots=[ASSET_DIR/"development"/"screenshots"]
+        elif category=="XXX": roots=[PORN_DIR]
         if category not in ("ACTION POSES","HORROR TETROMINOES"):
             files=[]
         for root in roots:
@@ -4207,11 +4272,11 @@ class Game:
         self.collection_page="GALLERY"; self.collection_item_index=0
 
     def collection_current_items(self):
-        if self.collection_page == "CUTSCENES": return ["INTRO / OPENING", "100 LINES — RESISTANCE", "200 LINES — CINEMATIC", "PHOBOS ROOM", "BACK"]
+        if self.collection_page == "CUTSCENES": return ["INTRO / OPENING", "100 LINES — RESISTANCE", "200 LINES — CINEMATIC", "BACK"]
         if self.collection_page == "MINIGAMES": return self.minigame_names + ["BACK"]
         if self.collection_page == "AUDIO": return ["MENU — TRACK 1", "MENU — TRACK 2", "INTRO MUSIC", "PHOBOS 0–99 — ARROGANT PRINCE", "PHOBOS ROOM — DARK THEME", "PHOBOS 200+ — MAIN THEME", "PHASE 2 — TRACK 1", "PHASE 2 — TRACK 2", "PHASE 2 — TRACK 3", "WITCH ENDING", "MINIGAMES MUSIC 1", "MINIGAMES MUSIC 2", "MINIGAMES — FOR ARCADE", "VTD — TRACK 1", "VTD — TRACK 2", "STOP", "BACK"]
         if self.collection_page == "ART & SPRITES": return ["ACTION POSES", "HORROR TETROMINOES", "PHOBOS ROOM STATES", "MERIDIAN WINDOWS", "BACK"]
-        if self.collection_page == "DEVELOPMENT ARCHIVE": return ["FAILED / UNUSED ART", "SCREENSHOTS", "FACTS & NOTES", "BACK"]
+        if self.collection_page == "DEVELOPMENT ARCHIVE": return ["FAILED / UNUSED ART", "XXX", "FACTS & NOTES", "BACK"]
         if self.collection_page == "GALLERY": return [fp.name for fp in self.collection_gallery_files] + ["BACK"]
         return self.collection_sections
 
@@ -4238,14 +4303,12 @@ class Game:
             elif item.startswith("100"):
                 self.start_new_game(); self.collection_cutscene=True; self.lines=100; self.start_story100()
             elif item.startswith("200"):
-                self.start_new_game(); self.collection_cutscene=True; self.lines=200; self.story_seen.add(200); self.story_overlay=200; self.story200_stage="cinematic_reverse"; self.story200_tick=0; self.winner_choice=0; self.music.pause()
-            elif item.startswith("PHOBOS ROOM"):
-                self.start_new_game(); self.collection_cutscene=True; self.phobos_route=True; self.story_winner="phobos"; self.lines=300; self.enter_phobos_room("collection")
+                self.start_new_game(); self.collection_cutscene=True; self.lines=200; self.story_seen.add(200); self.story_overlay=200; self.story200_stage="cinematic_reverse"; self.story200_tick=0; self.winner_choice=0; self.music.enter_special()
             return
         if self.collection_page=="AUDIO": self.play_collection_audio(item); return
         if self.collection_page=="ART & SPRITES": self.gallery_for(item); return
         if self.collection_page=="DEVELOPMENT ARCHIVE":
-            if item in ("FAILED / UNUSED ART","SCREENSHOTS"): self.gallery_for(item)
+            if item in ("FAILED / UNUSED ART","XXX"): self.gallery_for(item)
             return
 
     def handle_collection_key(self,key):
@@ -4272,43 +4335,42 @@ class Game:
         except pygame.error: self.collection_audio_item=None
 
     def play_minigame_music(self, name):
-        """Start this minigame's music from 0:00. Retry always calls this again."""
+        """Choose 80% from a game's own pool and 20% from the Arcade pool."""
         if not pygame.mixer.get_init():
             return
         mgmusic = ASSET_DIR / "audio" / "minigames"
-        tracks = []
+        arcade = sorted((USER_MUSIC_ROOT/"arcade").glob("*.mp3")) + sorted(mgmusic.glob("arcade_*.mp3"))
+        shared_ending=USER_MUSIC_ROOT/"guardians"/"witchending_and_arcade.mp3"
+        if shared_ending.exists(): arcade.append(shared_ending)
+        personal = []
         if "SNAKE" in name:
             variant = getattr(self, "mg_snake_variant", 0)
             if variant == 0:
                 blunk_track = mgmusic / "blunk_snake.mp3"
-                tracks = [blunk_track] if blunk_track.exists() else sorted(mgmusic.glob("snake_*.mp3"))
+                personal = [blunk_track] if blunk_track.exists() else sorted(mgmusic.glob("snake_*.mp3"))
             else:
-                # Cedric and Phobos share the normal Snake pool.
-                tracks = sorted(mgmusic.glob("snake_*.mp3"))
+                personal = sorted(mgmusic.glob("snake_*.mp3"))
         elif name == "BLUNK WASHING":
-            # Keep the four established Blunk Washing tracks unchanged.
-            tracks = sorted(mgmusic.glob("blunk_washing_*.mp3"))
-        else:
-            # Generic arcade themes rotate through a shuffled bag: every theme
-            # is heard once before the bag is shuffled again.
-            tracks = sorted(mgmusic.glob("arcade_*.mp3"))
-            if not tracks:
-                fallback = ASSET_DIR / "audio" / "collection" / "minigames_1.mp3"
-                tracks = [fallback] if fallback.exists() else []
-            queue = [q for q in getattr(self, "mg_arcade_music_queue", []) if q in tracks]
-            if not queue:
-                queue = tracks[:]
-                random.shuffle(queue)
-                last = getattr(self, "mg_arcade_last_track", None)
-                if len(queue) > 1 and queue[0] == last:
-                    queue[0], queue[1] = queue[1], queue[0]
-            fp = queue.pop(0) if queue else None
-            self.mg_arcade_music_queue = queue
-            self.mg_arcade_last_track = fp
-            tracks = [fp] if fp else []
+            personal = sorted(mgmusic.glob("blunk_washing_*.mp3"))
+            personal += sorted((USER_MUSIC_ROOT/"irma").glob("irma_blunkwashing_*.mp3"))
+        elif name in ("IRMA BUBBLE TROUBLE","IRMA WHIRLPOOL","IRMA DARK WATER PANIC"):
+            personal = sorted((USER_MUSIC_ROOT/"irma").glob("*.mp3"))
+        elif name == "HAY LIN FLIGHT":
+            personal = sorted((USER_MUSIC_ROOT/"haylin_flight").glob("*.mp3"))
+        elif name == "CALEB RUNNER":
+            personal = sorted((USER_MUSIC_ROOT/"caleb_runner").glob("*.mp3"))
+        elif name == "CALEB — BAT HUNTER":
+            personal = sorted((USER_MUSIC_ROOT/"hunter").glob("*.mp3"))
+        use_personal = bool(personal) and (not arcade or random.random() < .80)
+        tracks = personal if use_personal else arcade
+        if not tracks:
+            fallback = ASSET_DIR / "audio" / "collection" / "minigames_1.mp3"
+            tracks = [fallback] if fallback.exists() else []
         if not tracks:
             return
-        fp = random.choice(tracks)
+        choices=[fp for fp in tracks if fp != getattr(self,"mg_last_music",None)] or tracks
+        fp = random.choice(choices)
+        self.mg_last_music=fp
         try:
             pygame.mixer.music.stop()
             pygame.mixer.music.load(str(fp))
@@ -4318,7 +4380,8 @@ class Game:
             print(f"[minigame music] {exc}")
 
     def start_minigame(self,name):
-        pygame.mouse.set_visible(False)
+        pygame.mouse.set_visible(True)
+        self.music.enter_special()
         self.mode="minigame"; self.minigame=name; self.mg_score=0; self.mg_tick=0; self.mg_over=False; self.mg_gameover_reason=""
         self.mg_lives=1 if "SNAKE" in name else 3; self.mg_max_lives=self.mg_lives; self.mg_combo=0; self.mg_wave=1; self.mg_level=1; self.mg_objects=[]; self.mg_obstacles=[]
         # Centered safe arena: every minigame mechanic and sprite stays inside this visible playfield.
@@ -4339,10 +4402,18 @@ class Game:
         self.mg_whirl_angle=0.0; self.mg_whirl_mode="PULL"
         self.mg_corruption=0.0
         self.mg_garden_color=0; self.mg_garden_pulse=0; self.mg_garden_mistakes=0; self.mg_garden_streak=0
+        self.mg_hunter_shot=0; self.mg_hunter_combo=0; self.mg_hunter_misses=0
         # Fixed-position state shared by the v6.37 Game & Watch-style games.
         self.mg_gw_position=0; self.mg_gw_cedric=6; self.mg_gw_carried=0; self.mg_gw_banked=0
         self.mg_gw_safe_until=FPS; self.mg_gw_cover=1; self.mg_gw_lane=2
         self.mg_gw_stored=0
+        if name == "BLUNK TREASURE ESCAPE":
+            self.treasure=TreasureOctopus(getattr(self,"treasure_game_b",False))
+            if not hasattr(self,"treasure_cedric"):
+                source=ASSET_DIR/"minigames"/"cedric"/"serpent_open.png"
+                self.treasure_full_body=source.exists()
+                if not source.exists(): source=ASSET_DIR/"reference"/"v633_user_materials"/"cedric.png"
+                self.treasure_cedric=load_clean_alpha(source) if source.exists() else self.mg_art.get("cedric_face")
         self.mg_t_board=[[None for _ in range(10)] for _ in range(18)]
         self.mg_t_kind=random.choice(list(PIECES)); self.mg_t_rot=0; self.mg_t_x=3; self.mg_t_y=0
         self.mg_t_next=random.choice(list(PIECES)); self.mg_t_drop=0
@@ -4360,6 +4431,15 @@ class Game:
         self.mg_fright=0; self.mg_fright_chain=0
         self.reset_will_maze_wave()
         self.play_minigame_music(name)
+
+    def sync_treasure_state(self):
+        self.mg_score=self.treasure.score
+        self.mg_lives=self.treasure.lives
+        self.mg_gw_position=self.treasure.position
+        self.mg_gw_carried=self.treasure.bag
+        self.mg_gw_banked=self.treasure.banked
+        if self.treasure.over and not self.mg_over:
+            self.minigame_game_over("CEDRIC CAUGHT ALL THREE BLUNKS")
 
     def reset_will_maze_wave(self):
         excluded=set(getattr(self,"mg_maze_house",set())) | {tuple(self.mg_maze_player)}
@@ -4387,7 +4467,7 @@ class Game:
     def leave_minigame(self):
         pygame.mouse.set_visible(True)
         self.mode="collection"; self.collection_page="MINIGAMES"; self.collection_item_index=max(0,self.minigame_names.index(self.minigame))
-        if pygame.mixer.get_init(): pygame.mixer.music.stop()
+        self.music.leave_special(restart=True)
 
     def minigame_game_over(self, reason="GAME OVER"):
         if self.mg_over: return
@@ -4428,6 +4508,24 @@ class Game:
         elif name=="CALEB RUNNER":
             if key in (pygame.K_SPACE,pygame.K_UP) and self.mg_player[1]>=self.mg_ground-1: self.mg_vel[1]=-15.5
             if key==pygame.K_DOWN: self.mg_duck_timer=18
+        elif name=="CALEB — BAT HUNTER":
+            if key==pygame.K_LEFT: self.mg_player[0]-=38
+            elif key==pygame.K_RIGHT: self.mg_player[0]+=38
+            elif key==pygame.K_UP: self.mg_player[1]-=38
+            elif key==pygame.K_DOWN: self.mg_player[1]+=38
+            elif key==pygame.K_SPACE and self.mg_hunter_shot<=0:
+                self.mg_hunter_shot=8
+                targets=[bat for bat in self.mg_objects
+                         if (bat["x"]-self.mg_player[0])**2+(bat["y"]-self.mg_player[1])**2 <= 112**2]
+                if targets:
+                    bat=min(targets,key=lambda b:(b["x"]-self.mg_player[0])**2+(b["y"]-self.mg_player[1])**2)
+                    bat["hp"]-=1
+                    if bat["hp"]<=0:
+                        self.mg_objects.remove(bat)
+                        self.mg_hunter_combo+=1
+                        self.mg_score+=5+min(20,self.mg_hunter_combo)
+                else:
+                    self.mg_hunter_combo=0
         elif name=="HEART BREAKER":
             if key==pygame.K_LEFT: self.mg_paddle_x-=55
             elif key==pygame.K_RIGHT: self.mg_paddle_x+=55
@@ -4482,15 +4580,13 @@ class Game:
             elif key==pygame.K_RIGHT: self.mg_whirl_angle+=.28
             elif key==pygame.K_SPACE: self.mg_whirl_mode="BLAST"
         elif name=="BLUNK TREASURE ESCAPE":
-            old=self.mg_gw_position
-            if key==pygame.K_LEFT: self.mg_gw_position=max(0,self.mg_gw_position-1)
-            elif key==pygame.K_RIGHT: self.mg_gw_position=min(5,self.mg_gw_position+1)
-            if self.mg_gw_position==5 and old!=5:
-                self.mg_gw_carried=1
-            if self.mg_gw_position==0 and old!=0 and self.mg_gw_carried:
-                self.mg_gw_banked+=self.mg_gw_carried
-                self.mg_score+=10*self.mg_gw_carried
-                self.mg_gw_carried=0; self.mg_gw_cedric=6; self.mg_wave+=1
+            if key in (pygame.K_1,pygame.K_2):
+                self.treasure_game_b=key==pygame.K_2
+                self.start_minigame(name)
+                return
+            if key in (pygame.K_LEFT,pygame.K_RIGHT):
+                self.treasure.press(-1 if key==pygame.K_LEFT else 1)
+                self.sync_treasure_state()
         elif name=="CORNELIA STONE COVERS":
             if key==pygame.K_LEFT: self.mg_gw_cover=max(0,self.mg_gw_cover-1)
             elif key==pygame.K_RIGHT: self.mg_gw_cover=min(3,self.mg_gw_cover+1)
@@ -4533,6 +4629,13 @@ class Game:
                 dy=(1 if keys[pygame.K_DOWN] else 0)-(1 if keys[pygame.K_UP] else 0)
                 self.mg_player[1]+=dy*7
                 self.mg_player[1]=max(arena.top+240,min(arena.bottom-55,self.mg_player[1]))
+        if name=="CALEB — BAT HUNTER":
+            dx=(1 if keys[pygame.K_RIGHT] else 0)-(1 if keys[pygame.K_LEFT] else 0)
+            dy=(1 if keys[pygame.K_DOWN] else 0)-(1 if keys[pygame.K_UP] else 0)
+            self.mg_player[0]+=dx*8; self.mg_player[1]+=dy*8
+            self.mg_player[0]=max(arena.left+55,min(arena.right-275,self.mg_player[0]))
+            self.mg_player[1]=max(arena.top+70,min(arena.bottom-70,self.mg_player[1]))
+            self.mg_hunter_shot=max(0,self.mg_hunter_shot-1)
         if "SNAKE" in name:
             step=max(3,9-self.mg_level//2)
             if self.mg_tick%step==0:
@@ -4642,6 +4745,28 @@ class Game:
                     self.minigame_game_over("CALEB HIT AN OBSTACLE"); return
                 if o[0]+o[2]<116 and not o[4]: o[4]=True; self.mg_score+=1
                 if o[0]<arena.left: self.mg_obstacles.remove(o)
+        elif name=="CALEB — BAT HUNTER":
+            interval=max(18,42-self.mg_level*2)
+            if self.mg_tick%interval==0 and len(self.mg_objects)<14:
+                y=random.randint(arena.top+55,arena.bottom-55)
+                hp=1+(1 if self.mg_level>=3 and random.random()<.28 else 0)
+                speed=3.1+min(3.2,self.mg_level*.28)+random.random()*.8
+                target_y=self.mg_player[1]+random.randint(-75,75)
+                vy=max(-1.8,min(1.8,(target_y-y)/180.0))
+                self.mg_objects.append({"x":float(arena.right-155),"y":float(y),"vx":-speed,
+                                        "vy":vy,"hp":hp,"max_hp":hp,
+                                        "kind":random.randrange(max(1,len(self.mg_bat_frames))),
+                                        "phase":random.random()*math.tau})
+            for bat in list(self.mg_objects):
+                bat["x"]+=bat["vx"]
+                bat["y"]+=bat["vy"]+math.sin(self.mg_tick*.16+bat["phase"])*.75
+                hit=(bat["x"]-self.mg_player[0])**2+(bat["y"]-self.mg_player[1])**2 < 38**2
+                escaped=bat["x"]<arena.left+8
+                if hit or escaped:
+                    self.mg_objects.remove(bat); self.mg_lives-=1; self.mg_hunter_combo=0
+                    self.mg_hunter_misses+=1
+                    if self.mg_lives<=0:
+                        self.minigame_game_over("THE BATS REACHED CALEB"); return
         elif name=="HEART BREAKER":
             self.mg_paddle_w=max(88,170-self.mg_level*7); self.mg_paddle_x=max(arena.left+12+self.mg_paddle_w/2,min(arena.right-12-self.mg_paddle_w/2,self.mg_paddle_x))
             b=self.mg_ball; b[0]+=b[2]; b[1]+=b[3]
@@ -4769,18 +4894,8 @@ class Game:
                 if self.mg_lives<=0: self.minigame_game_over("THE WHIRLPOOL WON"); return
             self.mg_whirl_mode="AIM"
         elif name=="BLUNK TREASURE ESCAPE":
-            # Blunk raids a treasure cache and must return to the left before
-            # Cedric's canonical serpent form catches him. There is no boat
-            # and no final treasure: every delivery starts a faster pursuit.
-            chase_step=max(14,54-self.mg_level*4-self.mg_wave)
-            if self.mg_tick%chase_step==0:
-                if self.mg_gw_cedric>self.mg_gw_position: self.mg_gw_cedric-=1
-                elif self.mg_gw_cedric<self.mg_gw_position: self.mg_gw_cedric+=1
-            if self.mg_tick>=self.mg_gw_safe_until and self.mg_gw_cedric==self.mg_gw_position:
-                lost=self.game_watch_take_hit("CEDRIC CAUGHT BLUNK")
-                self.mg_gw_position=0; self.mg_gw_cedric=6; self.mg_gw_carried=0
-                self.mg_gw_safe_until=self.mg_tick+FPS
-                if lost: return
+            self.treasure.update()
+            self.sync_treasure_state()
         elif name=="CORNELIA STONE COVERS":
             spawn=max(28,92-self.mg_level*6)
             if self.mg_tick%spawn==0:
@@ -4864,7 +4979,7 @@ class Game:
         self.text("MOUSE / ↑↓ SELECT   CLICK / SPACE OPEN   ESC BACK",55,970,self.small)
 
     def draw_minigame(self):
-        self.canvas.fill((12,8,22)); self.text(self.minigame,40,28,self.font,COLORS["accent"]); self.text(f"SCORE {self.mg_score}",760,35,self.small); heart_text="♥"*max(0,self.mg_lives)+"♡"*max(0,getattr(self,"mg_max_lives",3)-self.mg_lives)
+        self.canvas.fill((12,8,22)); self.text(self.minigame,40,28,self.font,COLORS["accent"]); score_surface=self.small.render(f"SCORE {self.mg_score}",True,COLORS["text"]); self.canvas.blit(score_surface,score_surface.get_rect(topright=(WINDOW_W-30,100))); heart_text="♥"*max(0,self.mg_lives)+"♡"*max(0,getattr(self,"mg_max_lives",3)-self.mg_lives)
         hs=self.font.render(heart_text,True,(240,90,125)); self.canvas.blit(hs,hs.get_rect(center=(WINDOW_W//2,70))); self.text("ESC / X — BACK",40,72,self.small)
         arena=getattr(self,"mg_arena",pygame.Rect(70,145,WINDOW_W-140,760)); pygame.draw.rect(self.canvas,(27,16,42),arena); pygame.draw.rect(self.canvas,(125,75,150),arena,3)
         old_clip=self.canvas.get_clip(); self.canvas.set_clip(arena.inflate(-3,-3)); n=self.minigame
@@ -4941,6 +5056,39 @@ class Game:
             for o in self.mg_obstacles:
                 pygame.draw.rect(self.canvas,(130,80,70),self.caleb_obstacle_rect(o))
             self.text("SPACE/UP — JUMP   DOWN — DUCK",65,125,self.small)
+        elif n=="CALEB — BAT HUNTER":
+            # The Hunter commands the swarm from the right; Caleb is the aiming cursor.
+            hunter=None
+            if self.mg_hunter_poses:
+                hunter=self.mg_hunter_poses[(self.mg_tick//24)%len(self.mg_hunter_poses)]
+            if hunter:
+                h=455; w=max(1,int(hunter.get_width()*h/hunter.get_height()))
+                im=pygame.transform.smoothscale(hunter,(w,h))
+                self.canvas.blit(im,im.get_rect(midright=(arena.right+55,arena.centery+95)))
+            else:
+                pygame.draw.rect(self.canvas,(80,25,45),(arena.right-180,arena.centery-220,160,440))
+            for bat in self.mg_objects:
+                frame=self.mg_bat_frames[int(bat["kind"])%len(self.mg_bat_frames)] if self.mg_bat_frames else None
+                if frame:
+                    size=74 if bat["max_hp"]==1 else 88
+                    sc=min(size/frame.get_width(),size/frame.get_height())
+                    im=pygame.transform.smoothscale(frame,(max(1,int(frame.get_width()*sc)),max(1,int(frame.get_height()*sc))))
+                    self.canvas.blit(im,im.get_rect(center=(int(bat["x"]),int(bat["y"]))))
+                else:
+                    pygame.draw.circle(self.canvas,(88,35,110),(int(bat["x"]),int(bat["y"])),22)
+                if bat["max_hp"]>1:
+                    for hp in range(bat["max_hp"]):
+                        col=(245,80,105) if hp<bat["hp"] else (65,45,72)
+                        pygame.draw.rect(self.canvas,col,(int(bat["x"])-18+hp*19,int(bat["y"])-46,15,5))
+            mg_sprite("caleb",(int(self.mg_player[0]),int(self.mg_player[1])),90,112)
+            aim=(int(self.mg_player[0]),int(self.mg_player[1]))
+            pygame.draw.circle(self.canvas,(245,225,145),aim,46,2)
+            pygame.draw.line(self.canvas,(245,225,145),(aim[0]-55,aim[1]),(aim[0]+55,aim[1]),2)
+            pygame.draw.line(self.canvas,(245,225,145),(aim[0],aim[1]-55),(aim[0],aim[1]+55),2)
+            if self.mg_hunter_shot>0:
+                pygame.draw.circle(self.canvas,(255,245,195),aim,112,5)
+            self.text(f"COMBO {self.mg_hunter_combo}   MISSED {self.mg_hunter_misses}",65,125,self.small)
+            self.text("MOUSE / ARROWS — AIM CALEB   SPACE / CLICK — STRIKE",100,850,self.small)
         elif n=="HEART BREAKER":
             for x,y,w,h in self.mg_bricks:
                 r=pygame.Rect(x,y,w,h); pygame.draw.rect(self.canvas,(92,82,86),r); pygame.draw.rect(self.canvas,(145,128,126),r,2)
@@ -5014,26 +5162,7 @@ class Game:
                 if k!="enemy": pygame.draw.circle(self.canvas,(175,225,255),(int(x)-3,int(y)-3),4)
             self.text("LEFT/RIGHT — AIM WATER   SPACE — BLAST RED HAZARDS",65,125,self.small)
         elif n=="BLUNK TREASURE ESCAPE":
-            xs=[130+i*105 for i in range(7)]; track_y=690
-            pygame.draw.line(self.canvas,(104,78,55),(xs[0],track_y+42),(xs[5],track_y+42),8)
-            for x in xs[:6]:
-                pygame.draw.circle(self.canvas,(195,160,90),(x,track_y+42),10)
-            # The cache replaces the mistakenly proposed boat. Blunk must
-            # steal one object and escape left while serpent-Cedric pursues.
-            chest=pygame.Rect(xs[5]-42,track_y-12,84,58)
-            pygame.draw.rect(self.canvas,(112,62,32),chest); pygame.draw.rect(self.canvas,(224,178,66),chest,5)
-            pygame.draw.circle(self.canvas,(250,220,85),(xs[5],track_y+16),8)
-            bx=xs[self.mg_gw_position]
-            mg_sprite("blunk_face",(bx,track_y-35),82,82)
-            if self.mg_gw_carried: pygame.draw.circle(self.canvas,(255,220,70),(bx+30,track_y-58),10)
-            cx=xs[min(6,self.mg_gw_cedric)]
-            for seg in range(7,-1,-1):
-                sx=min(arena.right-8,cx+seg*20); sy=track_y-15+int(math.sin(seg*.9)*18)
-                pygame.draw.circle(self.canvas,(50,92,58),(sx,sy),24)
-                pygame.draw.arc(self.canvas,(205,55,48),(sx-24,sy-24,48,48),0,math.pi,5)
-            mg_sprite("cedric_face",(min(arena.right-58,cx),track_y-92),105,112)
-            self.text(f"TREASURE {self.mg_gw_banked}   CARRIED {self.mg_gw_carried}",65,125,self.small)
-            self.text("LEFT/RIGHT — RAID THE CACHE AND ESCAPE CEDRIC",130,850,self.small)
+            draw_treasure(self)
         elif n=="CORNELIA STONE COVERS":
             xs=[155+i*180 for i in range(4)]; road_y=680
             pygame.draw.rect(self.canvas,(82,70,75),(arena.left+15,road_y-25,arena.width-30,125))

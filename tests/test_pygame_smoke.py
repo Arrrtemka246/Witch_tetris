@@ -27,7 +27,7 @@ class PygameSmokeTests(unittest.TestCase):
         pygame.quit()
 
     def test_changed_minigames_draw_one_frame(self):
-        self.assertEqual(len(self.game.minigame_names), 14)
+        self.assertEqual(len(self.game.minigame_names), 15)
         self.assertNotIn("IRMA RAIN DANCE", self.game.minigame_names)
         self.assertNotIn("HAY LIN RESCUE", self.game.minigame_names)
         for name in ("WILL MAZE", "HAY LIN FLIGHT", "CALEB RUNNER", "HEART BREAKER",
@@ -90,13 +90,13 @@ class PygameSmokeTests(unittest.TestCase):
 
     def test_blunk_steals_treasure_and_escapes_serpent_cedric(self):
         self.game.start_minigame("BLUNK TREASURE ESCAPE")
-        for _ in range(5):
+        for _ in range(6):
             self.game.handle_minigame_key(pygame.K_RIGHT)
         self.assertEqual(self.game.mg_gw_carried, 1)
         for _ in range(5):
             self.game.handle_minigame_key(pygame.K_LEFT)
         self.assertEqual(self.game.mg_gw_banked, 1)
-        self.assertEqual(self.game.mg_score, 10)
+        self.assertEqual(self.game.mg_score, 4)
 
     def test_two_other_game_watch_loops_score_without_victory(self):
         self.game.start_minigame("CORNELIA STONE COVERS")
@@ -215,7 +215,6 @@ class PygameSmokeTests(unittest.TestCase):
             self.assertEqual(set(sequence[7:]), expected)
             self.assertEqual(len(set(sequence[:7])), 7)
             self.assertEqual(len(set(sequence[7:])), 7)
-            self.assertNotEqual(sequence[6], sequence[7])
         finally:
             self.game.figure_fall_mode = old_mode
             self.game.character_enabled = old_enabled

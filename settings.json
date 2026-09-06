@@ -10,5 +10,5 @@
   },
   "phobos": true,
   "start_speed": 1,
-  "figure_fall_mode": "phobos"
+  "figure_fall_mode": "classic"
 }
