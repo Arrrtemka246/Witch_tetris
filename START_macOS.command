@@ -11,5 +11,5 @@ fi
 if ! .venv/bin/python -c 'import pygame' >/dev/null 2>&1; then
   .venv/bin/python -m pip install -r requirements.txt || exit 1
 fi
-.venv/bin/python playtest.py
+.venv/bin/python main.py
 read -r -p 'Game closed. Press Enter...'

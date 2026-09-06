@@ -21,5 +21,5 @@ if errorlevel 1 (
     exit /b 1
   )
 )
-.venv\Scripts\python.exe playtest.py
+.venv\Scripts\python.exe main.py
 pause

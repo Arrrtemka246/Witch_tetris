@@ -12,6 +12,20 @@ ROOM_GUARDIANS={'guardians','witch','will','irma','tarani','taranee','haylin','c
 ROOM_LETTERS=set('ijltozs')
 PHOBOS_CODES={'phobos','фобос'}
 VTD_CODES={'vtd','втд','валентин'}
+ROOM_NAMED_CODES={
+ 'matrix':'matrix','матрица':'matrix',
+ 'artem':'artem','артем':'artem','артём':'artem',
+ 'jetix':'jetix','джетикс':'jetix',
+ 'chatgpt':'chatgpt','gpt':'chatgpt','гпт':'chatgpt',
+ 'suno':'suno','суно':'suno',
+}
+ROOM_NAMED_FIRST_REPLIES={
+ 'matrix':['Ну и зачем здесь это?','Знаешь, ты напоминаешь мне одного чувака.','Ты уверен?','Я не очень люблю такие умные фильмы.'],
+ 'artem':['Мне кажется, я как-то с этим связан.','Где-то я это имя уже слышал.','Мне кажется, он фигурировал в альтернативной ветке.','art3m_k_a.'],
+ 'jetix':['Ностальгия — это сильная штука.','Да, хороший был телеканал.','Эх, мультики там крутили классные.','Да, я, можно сказать, с него родом.','Присоединяйся к Jetix Plus в ТГшке.'],
+ 'chatgpt':['По-моему, это связано с моим созданием.','Мне кажется, что упоминание о нём где-то здесь могло быть.','Ну и тяжело же вайб-кодить.'],
+ 'suno':['В последнее время я часто слышал музыку оттуда.','Ты не представляешь, как тяжело было отбирать эти 82 трека (их больше, чем 82).','Ну и ну, зачем они так ужесточили авторские права и скачивание.'],
+}
 ROOM_REACTIONS=['Их здесь больше нет.','Бесполезно.','Ха-ха-ха. Я победил.','Они распались на пиксели. Хотя я сохранил их фотографии. Можешь посмотреть их в коллекции.']
 VICTORY_LINES={
  'will':['Мы снова вместе!','Сердце Кондракара снова с нами!'],
@@ -40,6 +54,7 @@ class PlaytestFeatures:
         self.room_vtd_silent=False
         self.room_vtd_matrix=False
         self.room_vtd_music_paused=False
+        self.room_named_counts={}
 
     def phobos_laugh(self):
         path=self.voice_paths.get('brilliant_laugh')
@@ -69,7 +84,9 @@ class PlaytestFeatures:
 
     def room_code(self,code):
         self.room_code_buffer=''; self.room_code_idle=0
-        if code in PHOBOS_CODES:
+        if code in ROOM_NAMED_CODES:
+            self.room_named_code(ROOM_NAMED_CODES[code])
+        elif code in PHOBOS_CODES:
             self.room_say('Спасибо')
         elif code in ROOM_GUARDIANS or code in ROOM_LETTERS:
             self.room_say(random.choice(ROOM_REACTIONS))
@@ -114,10 +131,27 @@ class PlaytestFeatures:
             else:
                 self.room_say('Мне надоело играть в это.')
 
+    def room_named_code(self,group):
+        """Five-step Phobos-room reaction shared by every alias in a group."""
+        count=self.room_named_counts.get(group,0)
+        self.room_named_counts[group]=count+1
+        if count==0:
+            if group=='jetix': self.phobos_laugh()
+            self.room_say(random.choice(ROOM_NAMED_FIRST_REPLIES[group]))
+        elif count==1:
+            self.room_say('Мне бы не очень хотелось сейчас об этом говорить.')
+        elif count==2:
+            self.room_say('[игнорирует]')
+        elif count==3:
+            self.room_say('...')
+        else:
+            self.room_say_lines([])
+            self.phobos_room_next_ms=pygame.time.get_ticks()+40000
+
     def feed_room_code(self,text):
         if self.room_vtd_timer or self.phobos_room_stage!='room':
             return bool(self.room_vtd_timer)
-        aliases=PHOBOS_CODES|ROOM_GUARDIANS|VTD_CODES
+        aliases=PHOBOS_CODES|ROOM_GUARDIANS|VTD_CODES|set(ROOM_NAMED_CODES)
         consumed=False
         for ch in text.lower():
             if not ch.isalpha(): continue

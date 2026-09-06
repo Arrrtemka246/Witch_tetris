@@ -12,6 +12,7 @@ import pygame
 from treasure_octopus import TreasureOctopus, draw_treasure
 from playtest_features import PlaytestFeatures, CLEAR_CODES, PHOBOS_CODES
 from phobos_dialogue import load_phobos_dialogue
+from ending import Ending
 
 # ============================================================
 # W.I.T.C.H. Tetris — Pygame build v6.38-test2
@@ -19,7 +20,7 @@ from phobos_dialogue import load_phobos_dialogue
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.40-test1"
+BUILD_VERSION = "6.41-rc6"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
@@ -48,6 +49,7 @@ MENU_DIR = ASSET_DIR / "menu"
 PHOBOS_MENU_DIR = MENU_DIR / "phobos"
 PHOBOS_FACE_DIR = PHOBOS_MENU_DIR / "faces"
 MUSIC_ROOT = ASSET_DIR / "audio" / "music"
+CUTSCENE_MUSIC_ROOT = MUSIC_ROOT / "cutscenes"
 USER_MUSIC_ROOT = ASSET_DIR / "audio" / "user_music"
 PHASE_MUSIC = {
     -1: MUSIC_ROOT / "menu",
@@ -262,6 +264,11 @@ class MusicPool:
         self.paused = False
         self.queue.clear()
         self.current = None
+        if phase == 0 and getattr(self, 'opening_pending', False):
+            self.opening_pending = False
+            opening = MUSIC_ROOT / 'phase_0_99_phobos' / 'Arrogant_Prince_of_the_Obsidian_Court.mp3'
+            if opening.exists():
+                self.queue = [opening]
         # A special soundtrack (VTD) owns the audio while locked. Remember the
         # new phase but never start normal music underneath it.
         if self.enabled and not self.special_lock and self.ready():
@@ -678,6 +685,8 @@ class Game(PlaytestFeatures):
         self.intro_tick = 0
         self.intro_scene = 0
         self.intro_scene_tick = 0
+        self.intro_boot_active = True
+        self.intro_boot_tick = 0
         self.intro_music_stage = None
         self.intro_music_path = None
         self.intro_dir = ASSET_DIR / "cutscenes" / "intro"
@@ -1013,10 +1022,6 @@ class Game(PlaytestFeatures):
         )
         if self.phobos_dialogue["random"]:
             self.phobos_room_data["random_chains"] = self.phobos_dialogue["random"]
-        if self.phobos_dialogue.get("escape"):
-            self.phobos_room_data.setdefault("event_reactions", {})["escape"] = [
-                self.phobos_dialogue["escape"]
-            ]
         self.phobos_last_intro = None
         self.phobos_vtd_recent = []
         self.phobos_room_bg = None
@@ -1144,11 +1149,15 @@ class Game(PlaytestFeatures):
         self.reset()
         # v6.34: restore the real opening intro on application launch.
         # restart_intro() owns self.mode and the intro soundtrack takes over on draw.
-        self.restart_intro()
+        self.restart_intro(show_boot=True)
         self.music.set_phase(-1, force=True)
         self.music.stop()
 
     def reset(self):
+        self.escape_first = True
+        self.escape_previous = None
+        self.break_voice_played = False
+        self.pay_voice_played = False
         self.reset_playtest()
         if getattr(self, "vtd_channel", None):
             self.vtd_channel.stop()
@@ -1251,6 +1260,7 @@ class Game(PlaytestFeatures):
         else:
             # Truly empty roster: no fallback tetromino is generated.
             self.empty_roster_started_ms = pygame.time.get_ticks()
+        self.music.opening_pending = True
         self.music.set_phase(0, force=True)
 
     def phase_index(self):
@@ -1301,6 +1311,8 @@ class Game(PlaytestFeatures):
         the room immediately. Secret buffers and active Easter-egg overlays
         are cleared so no old game code can execute inside Phobos's scene.
         """
+        self.escape_first = True
+        self.escape_previous = None
         if self.game_over:
             self.save_record()
         self.game_over = False
@@ -1426,16 +1438,22 @@ class Game(PlaytestFeatures):
         if name == "right_shift" and self.phobos_room_right_shift_seen: return
         if self.phobos_room_key_suppressed: return
         self.phobos_room_key_count += 1
-        if self.phobos_room_key_count >= 15:
+        if name == 'escape' and self.escape_first and self.phobos_dialogue.get('escape'):
+            chain={'id':'first_escape','lines':self.phobos_dialogue['escape']}
+            self.escape_first=False
+        elif self.phobos_room_key_count >= 15:
             chain={"id":"final_key_silence","lines":["Я больше не собираюсь комментировать нажатия.","Развлекай себя сам."]}
             self.phobos_room_key_suppressed=True
         elif self.phobos_room_key_count >= 10 and self.phobos_room_data.get("spam_reactions"):
             raw=random.choice(self.phobos_room_data["spam_reactions"]); chain={"id":"spam","lines":raw if isinstance(raw,list) else [str(raw)]}
         else:
-            event_map={"escape":"escape","right_shift":"right_shift"}
+            event_map={"escape":"ESC","right_shift":"right_shift"}
             pool=self.phobos_room_data.get("event_reactions",{}).get(event_map.get(name,name),[])
+            if name == 'escape':
+                pool=[r for r in pool if r != self.escape_previous] or pool
             if pool:
                 raw=random.choice(pool); lines=raw if isinstance(raw,list) else [str(raw)]
+                if name == 'escape': self.escape_previous=raw
             elif name=="escape": lines=["Escape?", "Нет. Здесь это так не работает."]
             elif name=="right_shift": lines=["Правый Shift.","У разработчика эта кнопка не работала как ожидалось, поэтому он не привязывал к ней реплики."]
             else: lines=[f"{name}. Любопытно."]
@@ -1757,11 +1775,12 @@ class Game(PlaytestFeatures):
             self.last_clear_kind = kind
             self.pending_clear = {"rows": rows, "kind": kind, "frames": frames, "total": frames}
             if self.phobos_route:
-                # Phobos ending: no Kandrakar sound; line clears are dark magic + screams.
-                if self.phobos_scream_pool:
-                    self.queue_external_voice(random.choice(self.phobos_scream_pool), delay_frames=0)
-                if len(rows) == 4 and self.phobos_tetris_laughs:
-                    self.queue_external_voice(random.choice(self.phobos_tetris_laughs), delay_frames=3)
+                # The ending route has no character comments, but clearing a
+                # line must still retain its tangible lightning SFX.
+                snd = random.choice(self.line_clear_sfx) if self.line_clear_sfx else self.heart_sfx
+                if snd:
+                    if self.sfx_channel: self.sfx_channel.play(snd)
+                    else: snd.play()
             elif len(rows) == 4 and self.heart_sfx:
                 if self.sfx_channel: self.sfx_channel.play(self.heart_sfx)
                 else: self.heart_sfx.play()
@@ -1837,6 +1856,7 @@ class Game(PlaytestFeatures):
             self.story200_tick = 0
             self.winner_choice = 0
             self.music.enter_special()
+            self.play_cutscene_music("lines200")
         elif self.phobos_route and self.lines >= 300 and 300 not in self.story_seen:
             self.enter_phobos_room("lines")
         elif self.phase_index() != old_phase:
@@ -2193,6 +2213,7 @@ class Game(PlaytestFeatures):
             self.story200_tick = 0
             self.winner_choice = 0
             self.music.enter_special()
+            self.play_cutscene_music("lines200")
         elif self.phobos_route and self.lines >= 300 and 300 not in self.story_seen:
             self.enter_phobos_room("developer_lines")
         elif self.phase_index() != old_phase:
@@ -2519,6 +2540,7 @@ class Game(PlaytestFeatures):
                     return
 
     def handle_mouse_click(self, pos, button=1):
+        if self.mode == 'ending': return
         if button != 1:
             return
         p = self.window_to_canvas(pos)
@@ -2589,7 +2611,7 @@ class Game(PlaytestFeatures):
                     if item == "CONTINUE": self.toggle_pause()
                     elif item == "RESTART": self.start_new_game()
                     else:
-                        self.paused = False; self.mode = "menu"; self.music.stop()
+                        self.return_to_menu()
                     return
         if self.mode == "game" and self.game_over:
             for i, rect in enumerate(self.game_over_rects()):
@@ -2597,7 +2619,7 @@ class Game(PlaytestFeatures):
                     self.game_over_index = i
                     if i == 0: self.start_new_game()
                     else:
-                        self.mode = "menu"; self.music.stop(); self.game_over = False
+                        self.return_to_menu()
                     return
 
     def handle_menu_key(self, key, scancode=None):
@@ -2664,6 +2686,9 @@ class Game(PlaytestFeatures):
         return True
 
     def handle_keydown(self, key, unicode_char="", mod=0, scancode=None):
+        if self.mode == 'ending':
+            self.ending.key(self)
+            return
         if scancode is not None:
             self.held_scancodes.add(scancode)
         if not self.secret_gameplay_context():
@@ -2682,6 +2707,10 @@ class Game(PlaytestFeatures):
             return
 
         if self.mode == "intro":
+            if self.intro_boot_active:
+                self.intro_boot_active = False
+                self.intro_boot_tick = 0
+                return
             if key in (pygame.K_ESCAPE, pygame.K_x) or scancode == SC_X:
                 self.finish_intro()
             elif key in (pygame.K_SPACE, pygame.K_RETURN):
@@ -2741,6 +2770,9 @@ class Game(PlaytestFeatures):
                     self.story100_stage = "after_key"
                     self.story100_tick = 0
                     self.story100_sfx_played.clear()
+                    # Keep the fake error sequence silent. User music begins
+                    # only after the promised "press any key" continuation.
+                    self.play_cutscene_music("lines100")
                 elif key in (pygame.K_SPACE, pygame.K_RETURN):
                     order = ["glitch", "blackout", "terminal", "wait_key", "after_key", "hall", "guardian", "phobos", "title"]
                     if self.story100_stage == "title":
@@ -2800,9 +2832,9 @@ class Game(PlaytestFeatures):
                 if self.game_over_index == 0:
                     self.start_new_game()
                 else:
-                    self.mode = "menu"; self.music.stop(); self.game_over = False
+                    self.return_to_menu()
             elif key in (pygame.K_ESCAPE, pygame.K_m):
-                self.mode = "menu"; self.music.stop(); self.game_over = False
+                self.return_to_menu()
             return
 
         if self.paused:
@@ -2816,12 +2848,12 @@ class Game(PlaytestFeatures):
                 item = self.pause_menu_items[self.pause_menu_index]
                 if item == "CONTINUE": self.toggle_pause()
                 elif item == "RESTART": self.start_new_game()
-                else: self.paused=False; self.mode="menu"; self.music.stop()
+                else: self.return_to_menu()
                 return
             if key == pygame.K_SPACE:
                 self.toggle_pause(); return
             if key == pygame.K_ESCAPE:
-                self.paused=False; self.mode="menu"; self.music.stop(); return
+                self.return_to_menu(); return
             return
 
         # Music controls use rare symbols so they never collide with secret words.
@@ -2861,6 +2893,11 @@ class Game(PlaytestFeatures):
 
     def update(self):
         self.menu_tick += 1
+        if self.mode == 'ending': return
+        if self.mode == 'game' and self.game_over and self.guardians_route and self.story_winner == 'guardians':
+            if not hasattr(self, 'ending'): self.ending=Ending()
+            self.ending.start(self)
+            return
         self.cheat_notice=max(0,self.cheat_notice-1)
         if not self.secret_gameplay_context() and (
             self.secret_overlay is not None or self.matrix_timer > 0
@@ -2878,6 +2915,12 @@ class Game(PlaytestFeatures):
                 self.finish_meta_video()
             return
         if self.mode == "intro":
+            if self.intro_boot_active:
+                self.intro_boot_tick += 1
+                if self.intro_boot_tick >= FPS * 6:
+                    self.intro_boot_active = False
+                    self.intro_boot_tick = 0
+                return
             self.intro_tick += 1; self.intro_scene_tick += 1
             # v6.16: slightly faster typewriter and automatic continuation after a readable pause.
             line = self.current_intro_dialogue_line()
@@ -2951,6 +2994,9 @@ class Game(PlaytestFeatures):
             return
         if self.story_overlay == 200:
             self.story200_tick += 1
+            if self.story200_stage == 'cinematic_break' and not self.break_voice_played:
+                self.break_voice_played=True
+                self.play_external_voice(self.voice_paths['cant_end'], force=True)
             if self.update_victory():
                 return
             auto={"cinematic_reverse":int(FPS*3.2),"cinematic_heart":int(FPS*3.0),"cinematic_phobos":int(FPS*3.0),"cinematic_break":int(FPS*3.0)}
@@ -3673,6 +3719,24 @@ class Game(PlaytestFeatures):
             except pygame.error: pass
         self.story100_loaded = True
 
+    def play_cutscene_music(self, scene_name):
+        """Play one optional user-supplied track without disturbing story flow."""
+        if not self.music.enabled or not pygame.mixer.get_init():
+            return False
+        files = self.music.scan(CUTSCENE_MUSIC_ROOT / scene_name)
+        if not files:
+            return False
+        try:
+            chosen = random.choice(files)
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(str(chosen))
+            pygame.mixer.music.play(0)
+            pygame.mixer.music.set_volume(self.music.base_volume)
+            return True
+        except pygame.error as exc:
+            print(f"[cutscene music] Could not play {chosen.name}: {exc}")
+            return False
+
     def start_story100(self):
         self.ensure_story100_assets()
         self.music.enter_special()
@@ -3770,6 +3834,9 @@ class Game(PlaytestFeatures):
         self.story100_tick += 1
         t = self.story100_tick
         stage = self.story100_stage
+        if stage == 'phobos' and t >= 106 and not self.pay_voice_played:
+            self.pay_voice_played=True
+            self.play_external_voice(random.choice([self.voice_paths['pay_short'],self.voice_paths['pay_full']]), force=True)
         if stage == "glitch":
             # Fake audio-driver failure: the current gameplay track stutters in
             # volume, then vanishes before the black terminal boot.
@@ -3982,10 +4049,6 @@ class Game(PlaytestFeatures):
             self.draw_story100_dialogue(self.intro_names[ch],self.story100_speaker_line)
             return
         if stage == "phobos":
-            if t == 106:
-                pays=[self.voice_paths.get("pay_short"),self.voice_paths.get("pay_full")]
-                pays=[p for p in pays if p and p.exists()]
-                if pays: self.play_external_voice(random.choice(pays), force=True)
             if t<105 and self.story100_assets.get("phobos_action"):
                 src=self.sprite_sheet_frame(self.story100_assets["phobos_action"], 4, 4, min(15, t//7))
                 self.draw_story100_sprite(src,(WINDOW_W//2,420),720,3)
@@ -4024,11 +4087,13 @@ class Game(PlaytestFeatures):
                 self.intro_music_path = chosen
             except pygame.error: pass
 
-    def restart_intro(self):
+    def restart_intro(self, show_boot=False):
         # Replayable from the main menu; reroll the random speaker/branch every time.
         self.intro_scene = 0
         self.intro_scene_tick = 0
         self.intro_tick = 0
+        self.intro_boot_active = show_boot
+        self.intro_boot_tick = 0
         self.intro_music_stage = None
         self.intro_music_path = None
         self.intro_scene_sfx_played.clear()
@@ -4183,7 +4248,43 @@ class Game(PlaytestFeatures):
         except pygame.error:
             pass
 
+    def draw_intro_boot_warning(self):
+        """Short launch-only boot screen that plants the story keywords."""
+        t = self.intro_boot_tick
+        self.canvas.fill((0, 0, 0))
+        # A restrained terminal flicker keeps the screen readable rather than
+        # looking like a menu or an explicit list of cheats.
+        if (t // 7) % 29 == 0:
+            pygame.draw.rect(self.canvas, (34, 7, 39), (0, 0, WINDOW_W, WINDOW_H))
+        warning = pygame.font.SysFont("Arial", 42, bold=True)
+        system = pygame.font.SysFont("Courier New", 25, bold=True)
+        small_system = pygame.font.SysFont("Courier New", 19)
+        lines = (
+            ("WARNING!!!!!", (240, 78, 104), warning),
+            ("ALPHA CHANNEL TROUBLE", (235, 215, 242), system),
+            ("18+", (255, 200, 98), warning),
+            ("", (0, 0, 0), system),
+            ("REMEMBER:", (177, 124, 205), system),
+            ("JETIX   WITCH   PHOBOS   Q   MATRIX   VTD   PORN", (230, 220, 238), small_system),
+            ("", (0, 0, 0), system),
+            ("PHOBOS CHARACTER HAS ESCAPED CONTROL.", (196, 162, 215), small_system),
+        )
+        start_y = 275
+        for index, (text, color, font) in enumerate(lines):
+            # Reveal line by line during the first two seconds, then leave
+            # enough time to read the words naturally.
+            if t < index * 13:
+                continue
+            surface = font.render(text, True, color)
+            self.canvas.blit(surface, surface.get_rect(center=(WINDOW_W // 2, start_y + index * 64)))
+        if t > FPS * 2:
+            hint = self.small.render("PRESS ANY KEY TO CONTINUE", True, (135, 125, 146))
+            self.canvas.blit(hint, hint.get_rect(center=(WINDOW_W // 2, 875)))
+
     def draw_intro(self):
+        if self.intro_boot_active:
+            self.draw_intro_boot_warning()
+            return
         sc, t = self.intro_scene, self.intro_scene_tick
 
         if sc == 0:
@@ -4295,6 +4396,17 @@ class Game(PlaytestFeatures):
         self.text("SPACE / ENTER",WINDOW_W//2-90,WINDOW_H//2+75,self.small,(235,235,245))
 
     # ---------------- v6.31 COLLECTION / MINIGAMES ----------------
+    def return_to_menu(self):
+        """Leave gameplay cleanly and always restore the menu soundtrack."""
+        self.paused = False
+        self.game_over = False
+        self.music.special_lock = False
+        self.music.paused = False
+        self.mode = "menu"
+        # ``force`` is important here: the game phase may still be selected,
+        # while its stream was explicitly stopped by the pause/game-over UI.
+        self.music.set_phase(-1, force=True)
+
     def open_collection(self):
         self.mode="collection"; self.collection_page="root"; self.collection_item_index=0
         self.collection_audio_item=None
@@ -4402,7 +4514,7 @@ class Game(PlaytestFeatures):
             elif item.startswith("100"):
                 self.start_new_game(); self.collection_cutscene=True; self.lines=100; self.start_story100()
             elif item.startswith("200"):
-                self.start_new_game(); self.collection_cutscene=True; self.lines=200; self.story_seen.add(200); self.story_overlay=200; self.story200_stage="cinematic_reverse"; self.story200_tick=0; self.winner_choice=0; self.music.enter_special()
+                self.start_new_game(); self.collection_cutscene=True; self.lines=200; self.story_seen.add(200); self.story_overlay=200; self.story200_stage="cinematic_reverse"; self.story200_tick=0; self.winner_choice=0; self.music.enter_special(); self.play_cutscene_music("lines200")
             return
         if self.collection_page=="AUDIO": self.play_collection_audio(item); return
         if self.collection_page=="ART & SPRITES": self.gallery_for(item); return
@@ -5460,7 +5572,9 @@ class Game(PlaytestFeatures):
         self.canvas.blit(hint, hint.get_rect(center=(WINDOW_W//2, WINDOW_H-55)))
 
     def draw(self):
-        if self.meta_video_name:
+        if self.mode == 'ending':
+            self.ending.draw(self.canvas)
+        elif self.meta_video_name:
             self.draw_meta_video()
         elif self.mode == "intro":
             self.draw_intro()
