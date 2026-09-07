@@ -1204,8 +1204,11 @@ class Game(PlaytestFeatures):
         self.story_winner = None
         self.story200_code_message = ""
         self.story200_artem_count = 0
+<<<<<<< HEAD
         self.congrats_story_quit = False
         self.congrats_story_quit_timer = 0
+=======
+>>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
         self.vtd_story_quit = False
         self.phobos_route = False
         self.guardians_route = False
@@ -2045,10 +2048,13 @@ class Game(PlaytestFeatures):
 
         if action == "matrix":
             self.begin_meta_video("matrix", "matrix_quit")
+<<<<<<< HEAD
             return
 
         if action == "congrats":
             self.start_congrats_story_exit()
+=======
+>>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
             return
 
         if action == "vtd":
@@ -2077,6 +2083,52 @@ class Game(PlaytestFeatures):
             # A missing/unavailable soundtrack must not leave this exit code
             # stuck on the choice screen.
             self.running = False
+<<<<<<< HEAD
+=======
+            return
+
+        if action == "chatgpt":
+            try:
+                webbrowser.open("https://chatgpt.com/", new=2)
+            except Exception:
+                pass
+            return
+
+        if action == "suno":
+            try:
+                webbrowser.open("https://suno.com/", new=2)
+            except Exception:
+                pass
+            return
+
+        if action == "guardians":
+            self.winner_choice = 0
+            self.choose_story_winner()
+            return
+
+        if action == "phobos":
+            self.winner_choice = 1
+            self.choose_story_winner()
+            return
+
+        if action == "artem":
+            self.story200_artem_count += 1
+            if self.story200_artem_count == 1:
+                self.story200_code_message = "СПАСИБО, НО ДЕЛАЙ ВЫБОР."
+            elif self.story200_artem_count == 2:
+                self.story200_code_message = "ПРОСТО ДЕЛАЙ ВЫБОР."
+            else:
+                self.story200_code_message = ""
+            return
+
+        if action == "jetix":
+            self.story200_stage = "jetix_thanks"
+            self.story200_tick = 0
+            return
+
+        if action == "porn_gallery":
+            self.begin_meta_video("porn", "porn_confirm")
+>>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
             return
 
         if action == "chatgpt":
@@ -2364,7 +2416,10 @@ class Game(PlaytestFeatures):
             # Existing easter eggs retained.
             "porn": "porn_gallery", "порн": "porn_gallery",
             "jetix": "jetix", "джетикс": "jetix",
+<<<<<<< HEAD
             "me": "congrats", "we": "congrats",
+=======
+>>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
         }
         physical_aliases = {
             code: action for code, action in aliases.items()
@@ -3045,15 +3100,22 @@ class Game(PlaytestFeatures):
                     return
                 if self.story200_stage == "guardians_win":
                     # The Guardians' celebration is a silent music-only scene.
+<<<<<<< HEAD
                     # The hidden route line must finish before free play starts.
                     if self.route_choice_voice_active:
                         return
+=======
+                    # Any ordinary key enters free play.
+>>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
                     self.continue_after_story200()
                     return
                 if self.story200_stage == "phobos_win":
                     if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE):
+<<<<<<< HEAD
                         if self.route_choice_voice_active:
                             return
+=======
+>>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
                         self.continue_after_story200()
                     return
                 cinematic_order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
