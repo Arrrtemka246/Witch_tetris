@@ -3019,7 +3019,7 @@ class Game(PlaytestFeatures):
             self.ending.start(self)
             return
         self.cheat_notice=max(0,self.cheat_notice-1)
-        if not self.secret_gameplay_context() and (
+        if not self.secret_gameplay_context() and not self.vtd_story_quit and (
             self.secret_overlay is not None or self.matrix_timer > 0
             or self.jetix_timer > 0 or self.vtd_active
         ):
