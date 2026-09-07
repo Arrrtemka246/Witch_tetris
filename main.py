@@ -1920,7 +1920,13 @@ class Game(PlaytestFeatures):
         self.meta_video_last_index = -1
         self.meta_video_surface = None
         self.meta_video_music_state = None
-        if after == "matrix_menu":
+        if after == "matrix_quit":
+            # The Matrix easter egg deliberately closes the whole application
+            # after the movie finishes. Game.run() performs the final pygame.quit().
+            self.story_overlay = None
+            self.music.leave_special(restart=False)
+            self.running = False
+        elif after == "matrix_menu":
             self.story_overlay = None
             self.mode = "menu"
             self.music.set_phase(-1, force=True)
@@ -1948,7 +1954,7 @@ class Game(PlaytestFeatures):
         self.secret_buffer = ""
         self.physical_secret_buffer = ""
         if action == "matrix":
-            self.begin_meta_video("matrix", "matrix_menu")
+            self.begin_meta_video("matrix", "matrix_quit")
             return
         if action == "jetix":
             self.story200_stage = "jetix_thanks"
@@ -2149,6 +2155,41 @@ class Game(PlaytestFeatures):
         self.vtd_locked = False
         if self.music.special_lock:
             self.music.leave_special(restart=restart_music)
+
+    def feed_story200_secret(self, unicode_char="", scancode=None):
+        """Recognize alternate-ending codes only on the 200-line choice screen."""
+        aliases = {
+            "matrix": "matrix", "матрица": "matrix",
+            "porn": "porn_gallery", "порн": "porn_gallery",
+            "jetix": "jetix", "джетикс": "jetix",
+            "vtd": "vtd", "втд": "vtd", "валентин": "vtd",
+        }
+        physical_aliases = {
+            "matrix": "matrix", "porn": "porn_gallery",
+            "jetix": "jetix", "vtd": "vtd",
+        }
+        if scancode is not None:
+            char = PHYSICAL_LETTERS.get(scancode)
+            if char:
+                self.physical_secret_buffer = (
+                    self.physical_secret_buffer + char
+                )[-self.secret_buffer_limit:]
+                for code in sorted(physical_aliases, key=len, reverse=True):
+                    if self.physical_secret_buffer.endswith(code):
+                        self.start_story200_secret(physical_aliases[code])
+                        return True
+        if unicode_char:
+            for char in unicode_char.lower():
+                if not char.isalpha():
+                    continue
+                self.secret_buffer = (
+                    self.secret_buffer + char
+                )[-self.secret_buffer_limit:]
+                for code in sorted(aliases, key=len, reverse=True):
+                    if self.secret_buffer.endswith(code):
+                        self.start_story200_secret(aliases[code])
+                        return True
+        return False
 
     def feed_secret_char(self, ch):
         """Feed layout-aware text into a rolling secret-code buffer.
@@ -2722,9 +2763,15 @@ class Game(PlaytestFeatures):
                     self.advance_intro()
             return
 
+        # The 200-line winner choice owns its own secret routes. It must be
+        # checked before the live-Tetris gate below clears both input buffers.
+        if self.story200_choice_active():
+            if self.feed_story200_secret(unicode_char, scancode):
+                return
+
         # The Phobos room is outside the normal game. Handle its local key
-        # reactions before the global secret-code buffers, so MATRIX, PORN,
-        # JETIX cannot activate here; VTD has a separate room-only reaction.
+        # reactions before the global secret-code buffers, so MATRIX and PORN
+        # cannot activate here; room codes have separate local reactions.
         if self.story_overlay == 300:
             if not self.feed_room_code(unicode_char):
                 self.react_phobos_room_key(key, unicode_char, mod, scancode)
