@@ -78,26 +78,31 @@ class EndingTests(unittest.TestCase):
         self.assertFalse(g.intro_boot_active)
         self.assertEqual(g.intro_scene,0)
 
-    def test_secret_replies_have_requested_limits(self):
-        g=self.g; g.reset(); g.mode='game'; g.secret_cooldown=0
-        first_jetix = ('Ностальгия — это сильная штука.','Да, хороший был телеканал.',
-                       'Эх, мультики там крутили классные.','Да, я, можно сказать, с него родом.',
-                       'Присоединяйся к Jetix Plus в ТГшке.')
-        with patch.object(g,'phobos_laugh') as laugh:
-            g.start_secret('jetix'); self.assertIn(g.secret_reply,first_jetix)
-            for line in ('Мне бы не очень хотелось сейчас об этом говорить.','[игнорирует]','...',''):
-                g.secret_cooldown=0; g.start_secret('jetix'); self.assertEqual(g.secret_reply,line)
-        laugh.assert_called_once()
-        for action in ('matrix','artem','chatgpt','suno'):
-            g.secret_cooldown=0; g.start_secret(action); self.assertTrue(g.secret_reply)
-            for line in ('Мне бы не очень хотелось сейчас об этом говорить.','[игнорирует]','...',''):
-                g.secret_cooldown=0; g.start_secret(action); self.assertEqual(g.secret_reply,line)
+    def test_story200_matrix_code_starts_video_and_quits(self):
+        g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
+        with patch.object(g,'begin_meta_video') as begin:
+            for char in 'matrix':
+                g.handle_keydown(pygame.K_UNKNOWN,char)
+        begin.assert_called_once_with('matrix','matrix_quit')
 
-    def test_named_secret_aliases_share_the_requested_groups(self):
-        aliases={'matrix':'matrix','матрица':'matrix','artem':'artem','артем':'artem','артём':'artem',
-                 'jetix':'jetix','джетикс':'jetix','chatgpt':'chatgpt','gpt':'chatgpt','гпт':'chatgpt',
-                 'suno':'suno','суно':'suno'}
-        for code,action in aliases.items(): self.assertEqual(self.g.secret_codes[code],action)
+        g.running=True; g.meta_video_after='matrix_quit'; g.meta_video_music_state={}
+        with patch.object(g.music,'leave_special') as leave:
+            g.finish_meta_video()
+        leave.assert_called_once_with(restart=False)
+        self.assertFalse(g.running)
+
+    def test_story200_porn_code_starts_video_and_returns_confirmation(self):
+        g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
+        with patch.object(g,'begin_meta_video') as begin:
+            for char in 'porn':
+                g.handle_keydown(pygame.K_UNKNOWN,char)
+        begin.assert_called_once_with('porn','porn_confirm')
+
+        g.meta_video_after='porn_confirm'; g.meta_video_music_state={'paused':True}
+        with patch.object(g.music,'leave_special'):
+            g.finish_meta_video()
+        self.assertEqual(g.story_overlay,200)
+        self.assertEqual(g.story200_stage,'porn_confirm')
 
     def test_line100_music_waits_for_any_key(self):
         g=self.g; g.mode='game'; g.story_overlay=100; g.story100_stage='wait_key'
