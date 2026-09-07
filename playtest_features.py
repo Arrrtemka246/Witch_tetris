@@ -211,8 +211,10 @@ class PlaytestFeatures:
     def prepare_victory(self):
         self.ensure_story100_assets()
         self.victory_laughed=False
-        self.victory_speaker=None if self.guardians_route else self.pick_active_character()
-        self.victory_line='' if self.guardians_route else (
+        # The celebration keeps its original on-screen character reaction.
+        # This is a caption only; Guardians do not speak during free play.
+        self.victory_speaker=self.pick_active_character()
+        self.victory_line=(
             random.choice(VICTORY_LINES[self.victory_speaker])
             if self.victory_speaker else ''
         )
@@ -263,23 +265,42 @@ class PlaytestFeatures:
             if t>=2.5: self.draw_wrapped_center('Ха-ха-ха! Власть над Меридианом снова моя!',845,width-100,self.font)
             self.draw_wrapped_center('SPACE — продолжить',980,width-80,self.small,(179,166,192))
         else:
-            # Preserve the original compact victory scene: all active characters
-            # jump in their normal left-to-right positions.
+            # Keep the original celebration rhythm with the requested new formation.
             self.draw_wrapped_center('СТРАЖНИЦЫ ПОБЕДИЛИ',110,width-60,self.big,(229,194,255))
-            active=self.active_intro_characters(); count=len(active)
-            for i,ch in enumerate(active):
-                x=int(width*(i+1)/(count+1)); jump=int(45*max(0,math.sin(t*5-i*.55)))
-                source=self.story100_assets.get(ch+'_action') or self.intro_images.get(ch+'_normal')
+            formation = {
+                'will': (112, 405, 250),
+                'blunk': (118, 695, 185),
+                'irma': (275, 485, 275),
+                'taranee': (430, 485, 275),
+                'cornelia': (592, 430, 250),
+                'caleb': (616, 700, 190),
+                'haylin': (805, 485, 275),
+            }
+            jump_phase = {
+                'will': 0.00, 'blunk': 0.35, 'irma': 0.70,
+                'taranee': 1.05, 'cornelia': 1.40, 'caleb': 1.75,
+                'haylin': 2.10,
+            }
+            for ch in ('will', 'blunk', 'irma', 'taranee', 'cornelia', 'caleb', 'haylin'):
+                if ch not in self.active_intro_characters() or ch not in formation:
+                    continue
+                x, y, height = formation[ch]
+                jump = int(32 * max(0, math.sin(t * 5 - jump_phase[ch])))
+                source = self.story100_assets.get(ch+'_action') or self.intro_images.get(ch+'_normal')
                 if source:
-                    height=min(330,(width/(count+1)-10)*source.get_height()/source.get_width())
-                    self.draw_story100_sprite(source,(x,570-jump),height)
-            if active:
-                self.draw_wrapped_center('МЫ ПОБЕДИЛИ, УРА!',735,width-100,self.font,(250,223,134))
-            self.draw_wrapped_center(
-                'МЫ ПОЛЕТЕЛИ БОРОТЬСЯ СО ЗЛОМ ДАЛЬШЕ, А ТЫ МОЖЕШЬ ПРОСТО НАСЛАДИТЬСЯ TETRIS.',
-                790,width-120,self.small,(230,220,245)
-            )
-            self.draw_wrapped_center('НАЖМИТЕ ЛЮБУЮ КЛАВИШУ, ЧТОБЫ ПРОДОЛЖИТЬ',940,width-80,self.small,(179,166,192))
+                    self.draw_story100_sprite(source, (x, y-jump), height)
+            self.draw_wrapped_center('МЫ ПОБЕДИЛИ, УРА!',815,width-100,self.font,(250,223,134))
+            if t >= 2 and self.victory_speaker:
+                self.draw_wrapped_center(
+                    NAMES[self.victory_speaker]+': '+self.victory_line,
+                    860,width-100,self.font
+                )
+            if t >= 4:
+                self.draw_wrapped_center(
+                    'МЫ ПОЛЕТЕЛИ БОРОТЬСЯ СО ЗЛОМ ДАЛЬШЕ, А ТЫ МОЖЕШЬ ПРОСТО НАСЛАДИТЬСЯ TETRIS.',
+                    915,width-120,self.small,(230,220,245)
+                )
+            self.draw_wrapped_center('НАЖМИТЕ ЛЮБУЮ КЛАВИШУ, ЧТОБЫ ПРОДОЛЖИТЬ',990,width-80,self.small,(179,166,192))
         return True
 
     def reset_classic_lock(self):
