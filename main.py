@@ -2198,7 +2198,8 @@ class Game(PlaytestFeatures):
         handled separately through SDL scancodes, so entering a code cannot
         leave WASD/W/X/Z/C in a broken partial-prefix state.
         """
-        if not self.secret_gameplay_context():
+        story200_secret_input = self.story200_choice_active()
+        if not self.secret_gameplay_context() and not story200_secret_input:
             self.secret_buffer = ""
             self.physical_secret_buffer = ""
             return
@@ -2765,7 +2766,7 @@ class Game(PlaytestFeatures):
 
         # The 200-line winner choice owns its own secret routes. It must be
         # checked before the live-Tetris gate below clears both input buffers.
-        if self.story200_choice_active():
+        if story200_secret_input:
             if self.feed_story200_secret(unicode_char, scancode):
                 return
 
@@ -2781,7 +2782,7 @@ class Game(PlaytestFeatures):
         # minigames and every cutscene clear partial input instead of carrying
         # it into the next gameplay frame.
         secret_input = self.secret_gameplay_context()
-        if not secret_input:
+        if not secret_input and not story200_secret_input:
             self.secret_buffer = ""
             self.physical_secret_buffer = ""
         if secret_input and unicode_char and unicode_char.isalpha():
