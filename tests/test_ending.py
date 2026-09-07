@@ -83,6 +83,31 @@ class EndingTests(unittest.TestCase):
         g.handle_keydown(pygame.K_DOWN)
         self.assertTrue(g.running)
 
+    def test_guardians_victory_uses_music_only_and_waits_for_input(self):
+        g=self.g; g.reset(); g.mode="game"; g.guardians_route=True
+        g.phobos_route=False; g.story_overlay=200; g.story200_stage="guardians_win"
+        g.story200_tick=9999; g.victory_speaker=None
+        self.assertTrue(g.update_victory())
+        self.assertEqual(g.story200_stage, "guardians_win")
+        with patch.object(g, "continue_after_story200") as continue_story:
+            g.handle_keydown(pygame.K_q, "q")
+        continue_story.assert_called_once()
+
+    def test_guardians_route_disables_phobos_secret_and_guardian_spawn_voice(self):
+        g=self.g; g.reset(); g.mode="game"; g.guardians_route=True
+        g.guardians_gone_this_run=True; g.secret_cooldown=0
+        with patch.object(g, "phobos_laugh") as laugh, patch.object(
+            g, "play_voice"
+        ) as voice:
+            g.start_secret("phobos_thanks")
+            g.maybe_character_voice("Z")
+        laugh.assert_not_called()
+        voice.assert_not_called()
+
+    def test_guardians_victory_music_folder_is_present(self):
+        folder = TRACK.parents[4] / "assets" / "audio" / "music" / "cutscenes" / "guardians_win"
+        self.assertTrue((folder / "PUT_GUARDIANS_VICTORY_MUSIC_HERE.txt").is_file())
+
     def test_story200_matrix_code_starts_video_and_quits(self):
         g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
         with patch.object(g,'begin_meta_video') as begin:
