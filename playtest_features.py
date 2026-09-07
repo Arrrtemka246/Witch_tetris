@@ -211,12 +211,23 @@ class PlaytestFeatures:
     def prepare_victory(self):
         self.ensure_story100_assets()
         self.victory_laughed=False
+        # The celebration keeps its original on-screen character reaction.
+        # This is a caption only; Guardians do not speak during free play.
         self.victory_speaker=self.pick_active_character()
-        self.victory_line=random.choice(VICTORY_LINES[self.victory_speaker]) if self.victory_speaker else ''
+        self.victory_line=(
+            random.choice(VICTORY_LINES[self.victory_speaker])
+            if self.victory_speaker else ''
+        )
         self.story200_stage=('guardians_win' if self.guardians_route else 'phobos_win' if self.horror_piece_mode else 'phobos_split')
         self.story200_tick=0
         self.queued_voice=None
         if self.voice_channel: self.voice_channel.stop()
+        if self.guardians_route:
+            # User tracks for the celebration live in
+            # assets/audio/music/cutscenes/guardians_win. There is no fallback:
+            # this cutscene must contain music only when the user supplies it.
+            if not self.play_cutscene_music('guardians_win') and pygame.mixer.get_init():
+                pygame.mixer.music.stop()
         self.victory_tiles=[]
         source=self.story100_assets.get('phobos_action') or self.phobos_resistance_body
         if source:
@@ -232,6 +243,10 @@ class PlaytestFeatures:
 
     def update_victory(self):
         if self.story200_stage not in ('guardians_win','phobos_win'): return False
+        # Guardians victory waits for the player; it must never skip itself
+        # because a voice line or an unrelated timer has completed.
+        if self.guardians_route:
+            return True
         if self.phobos_route and self.story200_tick>=FPS*2.5 and not self.victory_laughed:
             self.victory_laughed=True; self.phobos_laugh()
         if self.story200_tick>=FPS*7 and not (self.voice_channel and self.voice_channel.get_busy()):
@@ -248,18 +263,44 @@ class PlaytestFeatures:
                 self.canvas.blit(frag,(int(sx+(x-sx)*ease),int(sy+(y-sy)*ease)))
             self.draw_wrapped_center('ФОБОС ПОБЕДИЛ',95,width-80,self.big,(245,160,211))
             if t>=2.5: self.draw_wrapped_center('Ха-ха-ха! Власть над Меридианом снова моя!',845,width-100,self.font)
+            self.draw_wrapped_center('SPACE — продолжить',980,width-80,self.small,(179,166,192))
         else:
+            # Keep the original celebration rhythm with the requested new formation.
             self.draw_wrapped_center('СТРАЖНИЦЫ ПОБЕДИЛИ',110,width-60,self.big,(229,194,255))
-            active=self.active_intro_characters(); count=len(active)
-            for i,ch in enumerate(active):
-                x=int(width*(i+1)/(count+1)); jump=int(45*max(0,math.sin(t*5-i*.55)))
-                source=self.story100_assets.get(ch+'_action') or self.intro_images.get(ch+'_normal')
+            formation = {
+                'will': (112, 405, 250),
+                'blunk': (118, 695, 185),
+                'irma': (275, 485, 275),
+                'taranee': (430, 485, 275),
+                'cornelia': (592, 430, 250),
+                'caleb': (616, 700, 190),
+                'haylin': (805, 485, 275),
+            }
+            jump_phase = {
+                'will': 0.00, 'blunk': 0.35, 'irma': 0.70,
+                'taranee': 1.05, 'cornelia': 1.40, 'caleb': 1.75,
+                'haylin': 2.10,
+            }
+            for ch in ('will', 'blunk', 'irma', 'taranee', 'cornelia', 'caleb', 'haylin'):
+                if ch not in self.active_intro_characters() or ch not in formation:
+                    continue
+                x, y, height = formation[ch]
+                jump = int(32 * max(0, math.sin(t * 5 - jump_phase[ch])))
+                source = self.story100_assets.get(ch+'_action') or self.intro_images.get(ch+'_normal')
                 if source:
-                    height=min(330,(width/(count+1)-10)*source.get_height()/source.get_width())
-                    self.draw_story100_sprite(source,(x,570-jump),height)
-            if active: self.draw_wrapped_center('Ура! Победа!',735,width-100,self.font,(250,223,134))
-            if t>=2 and self.victory_speaker: self.draw_wrapped_center(NAMES[self.victory_speaker]+': '+self.victory_line,830,width-100,self.font)
-        self.draw_wrapped_center('SPACE — продолжить',980,width-80,self.small,(179,166,192))
+                    self.draw_story100_sprite(source, (x, y-jump), height)
+            self.draw_wrapped_center('МЫ ПОБЕДИЛИ, УРА!',815,width-100,self.font,(250,223,134))
+            if t >= 2 and self.victory_speaker:
+                self.draw_wrapped_center(
+                    NAMES[self.victory_speaker]+': '+self.victory_line,
+                    860,width-100,self.font
+                )
+            if t >= 4:
+                self.draw_wrapped_center(
+                    'МЫ ПОЛЕТЕЛИ БОРОТЬСЯ СО ЗЛОМ ДАЛЬШЕ, А ТЫ МОЖЕШЬ ПРОСТО НАСЛАДИТЬСЯ TETRIS.',
+                    915,width-120,self.small,(230,220,245)
+                )
+            self.draw_wrapped_center('НАЖМИТЕ ЛЮБУЮ КЛАВИШУ, ЧТОБЫ ПРОДОЛЖИТЬ',990,width-80,self.small,(179,166,192))
         return True
 
     def reset_classic_lock(self):

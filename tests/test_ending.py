@@ -3,7 +3,7 @@ os.environ.setdefault('SDL_VIDEODRIVER','dummy')
 os.environ.setdefault('SDL_AUDIODRIVER','dummy')
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import pygame
 from main import Game
 from ending import Ending, PROMPT_AT, TRACK
@@ -78,26 +78,142 @@ class EndingTests(unittest.TestCase):
         self.assertFalse(g.intro_boot_active)
         self.assertEqual(g.intro_scene,0)
 
-    def test_secret_replies_have_requested_limits(self):
-        g=self.g; g.reset(); g.mode='game'; g.secret_cooldown=0
-        first_jetix = ('Ностальгия — это сильная штука.','Да, хороший был телеканал.',
-                       'Эх, мультики там крутили классные.','Да, я, можно сказать, с него родом.',
-                       'Присоединяйся к Jetix Plus в ТГшке.')
-        with patch.object(g,'phobos_laugh') as laugh:
-            g.start_secret('jetix'); self.assertIn(g.secret_reply,first_jetix)
-            for line in ('Мне бы не очень хотелось сейчас об этом говорить.','[игнорирует]','...',''):
-                g.secret_cooldown=0; g.start_secret('jetix'); self.assertEqual(g.secret_reply,line)
-        laugh.assert_called_once()
-        for action in ('matrix','artem','chatgpt','suno'):
-            g.secret_cooldown=0; g.start_secret(action); self.assertTrue(g.secret_reply)
-            for line in ('Мне бы не очень хотелось сейчас об этом говорить.','[игнорирует]','...',''):
-                g.secret_cooldown=0; g.start_secret(action); self.assertEqual(g.secret_reply,line)
+    def test_first_menu_key_does_not_reference_choice_only_state(self):
+        g=self.g; g.reset(); g.mode="menu"; g.running=True
+        g.handle_keydown(pygame.K_DOWN)
+        self.assertTrue(g.running)
 
-    def test_named_secret_aliases_share_the_requested_groups(self):
-        aliases={'matrix':'matrix','матрица':'matrix','artem':'artem','артем':'artem','артём':'artem',
-                 'jetix':'jetix','джетикс':'jetix','chatgpt':'chatgpt','gpt':'chatgpt','гпт':'chatgpt',
-                 'suno':'suno','суно':'suno'}
-        for code,action in aliases.items(): self.assertEqual(self.g.secret_codes[code],action)
+    def test_guardians_victory_uses_music_only_and_waits_for_input(self):
+        g=self.g; g.reset(); g.mode="game"; g.guardians_route=True
+        g.phobos_route=False; g.story_overlay=200; g.story200_stage="guardians_win"
+        g.story200_tick=9999; g.victory_speaker=None
+        self.assertTrue(g.update_victory())
+        self.assertEqual(g.story200_stage, "guardians_win")
+        with patch.object(g, "continue_after_story200") as continue_story:
+            g.handle_keydown(pygame.K_q, "q")
+        continue_story.assert_called_once()
+
+    def test_guardians_route_disables_phobos_secret_and_guardian_spawn_voice(self):
+        g=self.g; g.reset(); g.mode="game"; g.guardians_route=True
+        g.guardians_gone_this_run=True; g.secret_cooldown=0
+        with patch.object(g, "phobos_laugh") as laugh, patch.object(
+            g, "play_voice"
+        ) as voice:
+            g.start_secret("phobos_thanks")
+            g.maybe_character_voice("Z")
+        laugh.assert_not_called()
+        voice.assert_not_called()
+
+    def test_guardians_victory_music_folder_is_present(self):
+        folder = TRACK.parents[4] / "assets" / "audio" / "music" / "cutscenes" / "guardians_win"
+        self.assertTrue((folder / "PUT_GUARDIANS_VICTORY_MUSIC_HERE.txt").is_file())
+
+    def test_story200_matrix_code_starts_video_and_quits(self):
+        g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
+        with patch.object(g,'begin_meta_video') as begin:
+            for char in 'matrix':
+                g.handle_keydown(pygame.K_UNKNOWN,char)
+        begin.assert_called_once_with('matrix','matrix_quit')
+
+        g.running=True; g.meta_video_after='matrix_quit'; g.meta_video_music_state={}
+        with patch.object(g.music,'leave_special') as leave:
+            g.finish_meta_video()
+        leave.assert_called_once_with(restart=False)
+        self.assertFalse(g.running)
+        g.running=True
+
+    def test_story200_code_groups_route_to_expected_actions(self):
+        g=self.g
+        groups = {
+            "matrix": ("matrix", "матрица"),
+            "vtd": ("vtd", "валентин", "valentin"),
+            "chatgpt": ("chatgpt", "gpt", "гпт"),
+            "suno": ("suno", "suna", "суно"),
+            "guardians": (
+                "witch", "витч", "will", "вилл", "irma", "ирма",
+                "taranee", "тарани", "cornelia", "корнелия",
+                "haylin", "хайлин", "стражницы", "чародейки",
+            ),
+            "phobos": ("phobos", "fobos", "фобос"),
+            "artem": ("artem", "артём", "артем"),
+        }
+        for action, aliases in groups.items():
+            for alias in aliases:
+                g.secret_buffer = ""
+                g.physical_secret_buffer = ""
+                with self.subTest(alias=alias), patch.object(
+                    g, "start_story200_secret"
+                ) as start:
+                    for char in alias:
+                        g.feed_story200_secret(char)
+                    start.assert_called_once_with(action)
+
+    def test_story200_web_codes_open_official_pages(self):
+        g=self.g
+        with patch("main.webbrowser.open", return_value=True) as open_page:
+            g.start_story200_secret("chatgpt")
+            open_page.assert_called_once_with("https://chatgpt.com/", new=2)
+            open_page.reset_mock()
+            g.start_story200_secret("suno")
+            open_page.assert_called_once_with("https://suno.com/", new=2)
+
+    def test_story200_side_codes_choose_without_extra_confirmation(self):
+        g=self.g; g.reset(); g.mode="game"; g.story_overlay=200
+        g.story200_stage="choice"
+        with patch.object(g, "choose_story_winner") as choose:
+            g.start_story200_secret("guardians")
+            self.assertEqual(g.winner_choice, 0)
+            choose.assert_called_once()
+            choose.reset_mock()
+            g.story200_stage="choice"
+            g.start_story200_secret("phobos")
+            self.assertEqual(g.winner_choice, 1)
+            choose.assert_called_once()
+
+    def test_story200_artem_reacts_twice_then_stays_silent(self):
+        g=self.g; g.reset()
+        g.start_story200_secret("artem")
+        self.assertEqual(g.story200_code_message, "СПАСИБО, НО ДЕЛАЙ ВЫБОР.")
+        g.start_story200_secret("artem")
+        self.assertEqual(g.story200_code_message, "ПРОСТО ДЕЛАЙ ВЫБОР.")
+        g.start_story200_secret("artem")
+        self.assertEqual(g.story200_code_message, "")
+        g.start_story200_secret("artem")
+        self.assertEqual(g.story200_code_message, "")
+
+    def test_story200_vtd_scene_quits_after_its_audio(self):
+        import tempfile
+        g=self.g; g.reset(); g.mode="game"; g.story_overlay=200
+        g.story200_stage="choice"; g.running=True
+        channel=Mock(); channel.get_busy.return_value=False
+        g.vtd_channel=channel
+        with tempfile.TemporaryDirectory() as directory:
+            track=Path(directory) / "vtd.mp3"
+            track.touch()
+            with patch("main.VTD_DIR", Path(directory)), patch(
+                "main.pygame.mixer.Sound", return_value=object()
+            ):
+                g.start_story200_secret("vtd")
+        self.assertEqual(g.story200_stage, "vtd_outro")
+        self.assertTrue(g.vtd_story_quit)
+        with patch.object(g.music, "leave_special") as leave:
+            g.update()
+        leave.assert_called_once_with(restart=False)
+        self.assertFalse(g.running)
+        g.running=True
+
+    def test_story200_porn_code_starts_video_and_returns_confirmation(self):
+        g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
+        with patch.object(g,'begin_meta_video') as begin:
+            for char in 'porn':
+                g.handle_keydown(pygame.K_UNKNOWN,char)
+        begin.assert_called_once_with('porn','porn_confirm')
+
+        g.meta_video_after='porn_confirm'; g.meta_video_music_state={'paused':True}
+        with patch.object(g.music,'leave_special'):
+            g.finish_meta_video()
+        self.assertEqual(g.story_overlay,200)
+        self.assertEqual(g.story200_stage,'porn_confirm')
 
     def test_line100_music_waits_for_any_key(self):
         g=self.g; g.mode='game'; g.story_overlay=100; g.story100_stage='wait_key'

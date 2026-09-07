@@ -15,12 +15,12 @@ from phobos_dialogue import load_phobos_dialogue
 from ending import Ending
 
 # ============================================================
-# W.I.T.C.H. Tetris — Pygame build v6.38-test2
+# W.I.T.C.H. Tetris — Pygame build v6.41-rc13
 # Full-color 50x50 source cells, auto-fit, transparency, Hold, story checkpoints and secret-code system.
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.41-rc6"
+BUILD_VERSION = "6.41-rc13"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
@@ -51,6 +51,8 @@ PHOBOS_FACE_DIR = PHOBOS_MENU_DIR / "faces"
 MUSIC_ROOT = ASSET_DIR / "audio" / "music"
 CUTSCENE_MUSIC_ROOT = MUSIC_ROOT / "cutscenes"
 USER_MUSIC_ROOT = ASSET_DIR / "audio" / "user_music"
+ROUTE_CHOICE_VOICE_ROOT = ASSET_DIR / "audio" / "voice" / "route_choice"
+WINNER_CHOICE_MUSIC_DIR = CUTSCENE_MUSIC_ROOT / "winner_choice"
 PHASE_MUSIC = {
     -1: MUSIC_ROOT / "menu",
     0: USER_MUSIC_ROOT / "phase1",
@@ -63,6 +65,12 @@ PHASE_MUSIC_FALLBACKS = {
     # ending theme keeps the post-200 Guardians route from becoming silent.
     2: [ASSET_DIR / "audio" / "collection" / "witch_ending.mp3"],
 }
+# This track opens Phobos's post-choice gameplay exactly once.  It deliberately
+# lives outside USER_MUSIC_ROOT/phobos so the normal shuffled bag cannot select
+# it again later in the same route.
+PHOBOS_ROUTE_OPENING_TRACK = (
+    MUSIC_ROOT / "phobos_route" / "Phobos_main_theme_3_phase.mp3"
+)
 RECORDS_PATH = BASE_DIR / "records.json"
 SECRET_DIR = ASSET_DIR / "secrets"
 PORN_DIR = SECRET_DIR / "porn"
@@ -269,6 +277,10 @@ class MusicPool:
             opening = MUSIC_ROOT / 'phase_0_99_phobos' / 'Arrogant_Prince_of_the_Obsidian_Court.mp3'
             if opening.exists():
                 self.queue = [opening]
+        if phase == 3 and getattr(self, "phobos_opening_pending", False):
+            self.phobos_opening_pending = False
+            if PHOBOS_ROUTE_OPENING_TRACK.exists():
+                self.queue = [PHOBOS_ROUTE_OPENING_TRACK]
         # A special soundtrack (VTD) owns the audio while locked. Remember the
         # new phase but never start normal music underneath it.
         if self.enabled and not self.special_lock and self.ready():
@@ -918,6 +930,9 @@ class Game(PlaytestFeatures):
             except pygame.error:
                 pass
         self.voice_channel = pygame.mixer.Channel(6) if pygame.mixer.get_init() else None
+        # Reserved exclusively for the post-choice reverse lines and the
+        # threshold before Phobos's room. No ordinary dialogue may steal it.
+        self.route_story_channel = pygame.mixer.Channel(2) if pygame.mixer.get_init() else None
         self.voice_paths = {name: VOICE_DIR / fn for name, fn in {
             "porn": "porn_reaction.mp3", "start": "meridian_mine.mp3", "200": "lines_200_rage.mp3",
             "tetris": "not_bad.mp3", "dark": "dark_side.mp3", "pause_hint": "pause_hint.mp3",
@@ -974,6 +989,9 @@ class Game(PlaytestFeatures):
         self.rotation_hint_block_pieces = 0
         self.queued_voice = None
         self.queued_voice_delay = 0
+        self.route_choice_voice_queue = []
+        self.route_choice_voice_active = False
+        self.phobos_room_entry_voice_active = False
         self.heart_image = None
         heart_path = EFFECT_DIR / "heart_kandrakar.png"
         if heart_path.exists():
@@ -1184,6 +1202,11 @@ class Game(PlaytestFeatures):
         self.story200_stage = "choice"
         self.story200_tick = 0
         self.story_winner = None
+        self.story200_code_message = ""
+        self.story200_artem_count = 0
+        self.congrats_story_quit = False
+        self.congrats_story_quit_timer = 0
+        self.vtd_story_quit = False
         self.phobos_route = False
         self.guardians_route = False
         self.guardians_gone_this_run = False
@@ -1344,6 +1367,8 @@ class Game(PlaytestFeatures):
         self.queued_voice_delay = 0
         if self.voice_channel:
             self.voice_channel.stop()
+        if self.route_story_channel:
+            self.route_story_channel.stop()
         if self.menu_voice_channel:
             self.menu_voice_channel.stop()
         if self.vtd_channel:
@@ -1352,6 +1377,15 @@ class Game(PlaytestFeatures):
         self.vtd_locked = False
         self.music.special_lock = False
         self.music.stop()
+        # The reversed Phobos teaser belongs to the threshold of his room,
+        # not to the earlier winner-choice scene.  The crash screen waits for
+        # the whole line before it continues into blackout and the room.
+        room_teasers = self.music.scan(ROUTE_CHOICE_VOICE_ROOT / "phobos")
+        self.phobos_room_entry_voice_active = False
+        if room_teasers:
+            self.phobos_room_entry_voice_active = self.play_route_story_sound(
+                random.choice(room_teasers)
+            )
 
     def choose_phobos_room_chain(self):
         pool = self.phobos_room_data.get("random_chains", [])
@@ -1569,6 +1603,59 @@ class Game(PlaytestFeatures):
             return
         self.queued_voice = path
         self.queued_voice_delay = max(0, delay_frames)
+
+    def start_route_choice_voice(self, route):
+        """Start the guaranteed one-shot voice sequence after the final choice."""
+        custom = self.music.scan(ROUTE_CHOICE_VOICE_ROOT / route)
+        sequence = []
+        if route == "phobos":
+            # Together these existing clips say: “Ха-ха-ха! Блестяще.”
+            for name in ("brilliant_laugh", "brilliant"):
+                path = self.voice_paths.get(name)
+                if path and path.exists():
+                    sequence.append(path)
+        if custom and route != "phobos":
+            # The Guardians route plays Will's reverse teaser here.  Phobos's
+            # custom teaser is reserved for the transition into his room.
+            sequence.append(random.choice(custom))
+        self.route_choice_voice_queue = sequence
+        self.route_choice_voice_active = bool(sequence)
+        self.queued_voice = None
+        self.queued_voice_delay = 0
+        if self.route_story_channel:
+            self.route_story_channel.stop()
+        self.update_route_choice_voice()
+
+    def play_route_story_sound(self, path):
+        """Play a protected story line on its dedicated mixer channel."""
+        if not self.route_story_channel or not path or not path.exists():
+            return False
+        try:
+            sound = pygame.mixer.Sound(str(path))
+            sound.set_volume(1.0)
+            self.route_story_channel.play(sound)
+            self.music.duck(True)
+            return True
+        except pygame.error as exc:
+            print(f"[route story voice] Could not play {path.name}: {exc}")
+            return False
+
+    def update_route_choice_voice(self):
+        """Play the route clips in order and never overlap them."""
+        if not self.route_choice_voice_active:
+            return
+        if not self.route_story_channel:
+            self.route_choice_voice_queue.clear()
+            self.route_choice_voice_active = False
+            return
+        if self.route_story_channel.get_busy():
+            return
+        while self.route_choice_voice_queue:
+            path = self.route_choice_voice_queue.pop(0)
+            if self.play_route_story_sound(path):
+                return
+        self.route_choice_voice_active = False
+        self.music.duck(False)
 
     def random_piece(self):
         """Select a piece using the configured Phobos or independent bag randomizer."""
@@ -1920,7 +2007,13 @@ class Game(PlaytestFeatures):
         self.meta_video_last_index = -1
         self.meta_video_surface = None
         self.meta_video_music_state = None
-        if after == "matrix_menu":
+        if after == "matrix_quit":
+            # The Matrix easter egg deliberately closes the whole application
+            # after the movie finishes. Game.run() performs the final pygame.quit().
+            self.story_overlay = None
+            self.music.leave_special(restart=False)
+            self.running = False
+        elif after == "matrix_menu":
             self.story_overlay = None
             self.mode = "menu"
             self.music.set_phase(-1, force=True)
@@ -1943,39 +2036,131 @@ class Game(PlaytestFeatures):
             self.music.paused = bool(previous_music.get("paused", False))
 
     def start_story200_secret(self, action):
-        # Codes on the winner-choice screen are alternate endings, NOT the ordinary in-game cheats.
+        """Run a code that was completed on the 200-line winner-choice screen."""
         self.secret_cooldown = 12
         self.secret_buffer = ""
         self.physical_secret_buffer = ""
+        if action != "artem":
+            self.story200_code_message = ""
+
         if action == "matrix":
-            self.begin_meta_video("matrix", "matrix_menu")
+            self.begin_meta_video("matrix", "matrix_quit")
             return
-        if action == "jetix":
-            self.story200_stage = "jetix_thanks"
-            self.story200_tick = 0
+
+        if action == "congrats":
+            self.start_congrats_story_exit()
             return
-        if action == "porn_gallery":
-            self.begin_meta_video("porn", "porn_confirm")
-            return
+
         if action == "vtd":
-            files = [p for p in VTD_DIR.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO] if VTD_DIR.exists() else []
+            files = [
+                path for path in VTD_DIR.iterdir()
+                if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO
+            ] if VTD_DIR.exists() else []
             if files and self.vtd_channel:
                 try:
                     self.music.enter_special()
                     self.vtd_current = random.choice(files)
-                    snd = pygame.mixer.Sound(str(self.vtd_current))
-                    self.vtd_channel.stop(); self.vtd_channel.play(snd)
+                    sound = pygame.mixer.Sound(str(self.vtd_current))
+                    self.vtd_channel.stop()
+                    self.vtd_channel.play(sound)
                     self.vtd_active = True
+                    self.vtd_locked = True
+                    self.vtd_story_quit = True
                     self.silence_for_vtd()
+                    self.vtd_locked = True
                     self.vtd_intro_timer = int(FPS * 0.35)
+                    self.story200_stage = "vtd_outro"
+                    self.story200_tick = 0
+                    return
                 except pygame.error:
                     pass
-            self.story_winner = "vtd"
-            self.guardians_route = False
-            self.phobos_route = False
-            self.horror_piece_mode = False
-            self.story_overlay = None
+            # A missing/unavailable soundtrack must not leave this exit code
+            # stuck on the choice screen.
+            self.running = False
             return
+
+        if action == "chatgpt":
+            try:
+                webbrowser.open("https://chatgpt.com/", new=2)
+            except Exception:
+                pass
+            return
+
+        if action == "suno":
+            try:
+                webbrowser.open("https://suno.com/", new=2)
+            except Exception:
+                pass
+            return
+
+        if action == "guardians":
+            self.winner_choice = 0
+            self.choose_story_winner()
+            return
+
+        if action == "phobos":
+            self.winner_choice = 1
+            self.choose_story_winner()
+            return
+
+        if action == "artem":
+            self.story200_artem_count += 1
+            if self.story200_artem_count == 1:
+                self.story200_code_message = "СПАСИБО, НО ДЕЛАЙ ВЫБОР."
+            elif self.story200_artem_count == 2:
+                self.story200_code_message = "ПРОСТО ДЕЛАЙ ВЫБОР."
+            else:
+                self.story200_code_message = ""
+            return
+
+        if action == "jetix":
+            self.stop_winner_choice_music()
+            self.story200_stage = "jetix_thanks"
+            self.story200_tick = 0
+            return
+
+        if action == "porn_gallery":
+            self.begin_meta_video("porn", "porn_confirm")
+            return
+
+    def play_winner_choice_music(self):
+        """Loop one optional user track for as long as the winner choice is open."""
+        if not self.music.enabled or not pygame.mixer.get_init():
+            return False
+        files = self.music.scan(WINNER_CHOICE_MUSIC_DIR)
+        if not files:
+            return False
+        chosen = random.choice(files)
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(str(chosen))
+            pygame.mixer.music.play(-1)
+            pygame.mixer.music.set_volume(self.music.base_volume)
+            return True
+        except pygame.error as exc:
+            print(f"[winner choice music] Could not play {chosen.name}: {exc}")
+            return False
+
+    def stop_winner_choice_music(self):
+        if pygame.mixer.get_init():
+            pygame.mixer.music.stop()
+
+    def enter_story200_choice(self):
+        self.story200_stage = "choice"
+        self.story200_tick = 0
+        self.play_winner_choice_music()
+
+    def start_congrats_story_exit(self):
+        """Let Phobos congratulate the player in text, laugh, then quit."""
+        self.stop_winner_choice_music()
+        self.story200_code_message = "ФОБОС: НУ ЧТО Ж, ПОЗДРАВЛЯЮ."
+        self.congrats_story_quit = True
+        self.congrats_story_quit_timer = FPS * 2
+        laugh = self.voice_paths.get("brilliant_laugh")
+        if laugh and laugh.exists() and self.voice_channel:
+            self.voice_cooldown = 0
+            if self.play_external_voice(laugh, force=True):
+                self.congrats_story_quit_timer = FPS // 2
 
     def open_random_adult_site(self):
         if not ADULT_SITES_FILE.exists():
@@ -2041,7 +2226,10 @@ class Game(PlaytestFeatures):
         self.secret_buffer = ""
         self.physical_secret_buffer = ""
         if action == "phobos_thanks":
-            self.phobos_laugh()
+            # After the Guardians' victory this hidden response is disabled:
+            # free play must stay free of Phobos.
+            if not self.guardians_route:
+                self.phobos_laugh()
         elif action == "clear_board":
             self.board=[[None for _ in range(BOARD_W)] for _ in range(BOARD_H)]
             self.pending_clear=None
@@ -2150,6 +2338,61 @@ class Game(PlaytestFeatures):
         if self.music.special_lock:
             self.music.leave_special(restart=restart_music)
 
+    def feed_story200_secret(self, unicode_char="", scancode=None):
+        """Recognize code groups only on the 200-line winner-choice screen."""
+        aliases = {
+            # Video/exit groups.
+            "matrix": "matrix", "матрица": "matrix",
+            "vtd": "vtd", "втд": "vtd", "валентин": "vtd",
+            "valentin": "vtd", "valentine": "vtd",
+            # Official pages.
+            "chatgpt": "chatgpt", "gpt": "chatgpt", "гпт": "chatgpt",
+            "suno": "suno", "suna": "suno", "суно": "suno",
+            # Automatic ending choice.
+            "guardians": "guardians", "witch": "guardians",
+            "стражницы": "guardians", "стражничы": "guardians",
+            "чародейки": "guardians", "витч": "guardians",
+            "will": "guardians", "вилл": "guardians",
+            "irma": "guardians", "ирма": "guardians",
+            "taranee": "guardians", "tarani": "guardians", "тарани": "guardians",
+            "cornelia": "guardians", "корнелия": "guardians",
+            "haylin": "guardians", "хайлин": "guardians",
+            "phobos": "phobos", "fobos": "phobos", "фобос": "phobos",
+            # Choice-screen acknowledgement.
+            "artem": "artem", "артем": "artem", "артём": "artem",
+            "artmka": "artem",
+            # Existing easter eggs retained.
+            "porn": "porn_gallery", "порн": "porn_gallery",
+            "jetix": "jetix", "джетикс": "jetix",
+            "me": "congrats", "we": "congrats",
+        }
+        physical_aliases = {
+            code: action for code, action in aliases.items()
+            if code.isascii()
+        }
+        if scancode is not None:
+            char = PHYSICAL_LETTERS.get(scancode)
+            if char:
+                self.physical_secret_buffer = (
+                    self.physical_secret_buffer + char
+                )[-self.secret_buffer_limit:]
+                for code in sorted(physical_aliases, key=len, reverse=True):
+                    if self.physical_secret_buffer.endswith(code):
+                        self.start_story200_secret(physical_aliases[code])
+                        return True
+        if unicode_char:
+            for char in unicode_char.lower():
+                if not char.isalpha():
+                    continue
+                self.secret_buffer = (
+                    self.secret_buffer + char
+                )[-self.secret_buffer_limit:]
+                for code in sorted(aliases, key=len, reverse=True):
+                    if self.secret_buffer.endswith(code):
+                        self.start_story200_secret(aliases[code])
+                        return True
+        return False
+
     def feed_secret_char(self, ch):
         """Feed layout-aware text into a rolling secret-code buffer.
 
@@ -2157,7 +2400,8 @@ class Game(PlaytestFeatures):
         handled separately through SDL scancodes, so entering a code cannot
         leave WASD/W/X/Z/C in a broken partial-prefix state.
         """
-        if not self.secret_gameplay_context():
+        story200_secret_input = self.story200_choice_active()
+        if not self.secret_gameplay_context() and not story200_secret_input:
             self.secret_buffer = ""
             self.physical_secret_buffer = ""
             return
@@ -2541,6 +2785,7 @@ class Game(PlaytestFeatures):
 
     def handle_mouse_click(self, pos, button=1):
         if self.mode == 'ending': return
+        if self.congrats_story_quit: return
         if button != 1:
             return
         p = self.window_to_canvas(pos)
@@ -2691,7 +2936,8 @@ class Game(PlaytestFeatures):
             return
         if scancode is not None:
             self.held_scancodes.add(scancode)
-        if not self.secret_gameplay_context():
+        story200_secret_input = self.story200_choice_active()
+        if not self.secret_gameplay_context() and not story200_secret_input:
             self.secret_buffer = ""
             self.physical_secret_buffer = ""
 
@@ -2704,6 +2950,9 @@ class Game(PlaytestFeatures):
         if self.meta_video_name:
             if key == pygame.K_ESCAPE:
                 self.finish_meta_video()
+            return
+
+        if self.congrats_story_quit:
             return
 
         if self.mode == "intro":
@@ -2722,9 +2971,15 @@ class Game(PlaytestFeatures):
                     self.advance_intro()
             return
 
+        # The 200-line winner choice owns its own secret routes. It must be
+        # checked before the live-Tetris gate below clears both input buffers.
+        if story200_secret_input:
+            if self.feed_story200_secret(unicode_char, scancode):
+                return
+
         # The Phobos room is outside the normal game. Handle its local key
-        # reactions before the global secret-code buffers, so MATRIX, PORN,
-        # JETIX cannot activate here; VTD has a separate room-only reaction.
+        # reactions before the global secret-code buffers, so MATRIX and PORN
+        # cannot activate here; room codes have separate local reactions.
         if self.story_overlay == 300:
             if not self.feed_room_code(unicode_char):
                 self.react_phobos_room_key(key, unicode_char, mod, scancode)
@@ -2734,7 +2989,7 @@ class Game(PlaytestFeatures):
         # minigames and every cutscene clear partial input instead of carrying
         # it into the next gameplay frame.
         secret_input = self.secret_gameplay_context()
-        if not secret_input:
+        if not secret_input and not story200_secret_input:
             self.secret_buffer = ""
             self.physical_secret_buffer = ""
         if secret_input and unicode_char and unicode_char.isalpha():
@@ -2786,19 +3041,34 @@ class Game(PlaytestFeatures):
                             pass
                 return
             if self.story_overlay == 200:
-                if self.story200_stage in ("guardians_win","phobos_win"):
-                    if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE): self.continue_after_story200()
+                if self.story200_stage == "vtd_outro":
+                    return
+                if self.story200_stage == "guardians_win":
+                    # The Guardians' celebration is a silent music-only scene.
+                    # The hidden route line must finish before free play starts.
+                    if self.route_choice_voice_active:
+                        return
+                    self.continue_after_story200()
+                    return
+                if self.story200_stage == "phobos_win":
+                    if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE):
+                        if self.route_choice_voice_active:
+                            return
+                        self.continue_after_story200()
                     return
                 cinematic_order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
                 if key in (pygame.K_x, pygame.K_ESCAPE) or scancode == SC_X:
                     if self.collection_cutscene:
                         self.story_overlay=None; self.collection_cutscene=False; self.mode="collection"; self.collection_page="CUTSCENES"; self.collection_item_index=0; self.music.set_phase(-1,force=True)
                     else:
-                        self.story200_stage="choice"; self.story200_tick=0
+                        self.enter_story200_choice()
                     return
                 if self.story200_stage in cinematic_order[:-1]:
                     if key in (pygame.K_SPACE,pygame.K_RETURN):
-                        i=cinematic_order.index(self.story200_stage); self.story200_stage=cinematic_order[i+1]; self.story200_tick=0
+                        i=cinematic_order.index(self.story200_stage)
+                        next_stage=cinematic_order[i+1]
+                        if next_stage == "choice": self.enter_story200_choice()
+                        else: self.story200_stage=next_stage; self.story200_tick=0
                     return
                 if self.story200_stage == "choice":
                     if key in (pygame.K_LEFT, pygame.K_a): self.winner_choice = 0
@@ -2806,13 +3076,13 @@ class Game(PlaytestFeatures):
                     elif key in (pygame.K_SPACE, pygame.K_RETURN): self.choose_story_winner()
                 elif self.story200_stage == "jetix_thanks":
                     if key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_ESCAPE):
-                        self.story200_stage = "choice"; self.story200_tick = 0
+                        self.enter_story200_choice()
                 elif self.story200_stage == "porn_confirm":
                     if key == pygame.K_y:
                         self.open_random_adult_site()
-                        self.story200_stage = "choice"; self.story200_tick = 0
+                        self.enter_story200_choice()
                     elif key in (pygame.K_n, pygame.K_ESCAPE):
-                        self.story200_stage = "choice"; self.story200_tick = 0
+                        self.enter_story200_choice()
                 elif key in (pygame.K_SPACE, pygame.K_RETURN):
                     self.continue_after_story200()
                 return
@@ -2899,7 +3169,7 @@ class Game(PlaytestFeatures):
             self.ending.start(self)
             return
         self.cheat_notice=max(0,self.cheat_notice-1)
-        if not self.secret_gameplay_context() and (
+        if not self.secret_gameplay_context() and not self.vtd_story_quit and (
             self.secret_overlay is not None or self.matrix_timer > 0
             or self.jetix_timer > 0 or self.vtd_active
         ):
@@ -2967,6 +3237,17 @@ class Game(PlaytestFeatures):
         if self.matrix_timer > 0: self.matrix_timer -= 1
         if self.vtd_intro_timer > 0: self.vtd_intro_timer -= 1
         if self.jetix_timer > 0: self.jetix_timer -= 1
+        if self.congrats_story_quit:
+            if self.congrats_story_quit_timer > 0:
+                self.congrats_story_quit_timer -= 1
+            if self.voice_channel and self.voice_channel.get_busy():
+                return
+            if self.congrats_story_quit_timer > 0:
+                return
+            self.congrats_story_quit = False
+            self.running = False
+            return
+        self.update_route_choice_voice()
         if self.voice_channel and not self.voice_channel.get_busy():
             if self.queued_voice is not None:
                 if self.queued_voice_delay > 0:
@@ -2977,6 +3258,14 @@ class Game(PlaytestFeatures):
             else:
                 self.music.duck(False)
                 if self.vtd_channel: self.vtd_channel.set_volume(1.0)
+        if self.vtd_story_quit and self.vtd_channel and not self.vtd_channel.get_busy():
+            self.vtd_story_quit = False
+            self.vtd_active = False
+            self.vtd_locked = False
+            self.vtd_intro_timer = 0
+            self.music.leave_special(restart=False)
+            self.running = False
+            return
         if self.vtd_active and self.vtd_channel and not self.vtd_channel.get_busy() and not self.vtd_locked:
             self.vtd_active = False
             self.vtd_intro_timer = 0
@@ -3005,7 +3294,9 @@ class Game(PlaytestFeatures):
                     self.story_overlay=None; self.collection_cutscene=False; self.mode="collection"; self.collection_page="CUTSCENES"; self.collection_item_index=0
                     self.music.leave_special(restart=False); self.music.set_phase(-1,force=True); return
                 order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
-                self.story200_stage=order[order.index(self.story200_stage)+1]; self.story200_tick=0
+                next_stage=order[order.index(self.story200_stage)+1]
+                if next_stage == "choice": self.enter_story200_choice()
+                else: self.story200_stage=next_stage; self.story200_tick=0
                 return
             # Before the Phobos 20% vanilla branch, visibly split the Guardians out
             # of their character sprites. The transition is automatic.
@@ -3018,6 +3309,11 @@ class Game(PlaytestFeatures):
                 return
             self.phobos_room_tick += 1
             if self.phobos_room_stage == "crash":
+                if self.phobos_room_entry_voice_active:
+                    if self.route_story_channel and self.route_story_channel.get_busy():
+                        return
+                    self.phobos_room_entry_voice_active = False
+                    self.phobos_room_tick = 0
                 if self.phobos_room_tick >= int(FPS * 1.6):
                     self.phobos_room_stage = "blackout"
                     self.phobos_room_tick = 0
@@ -3265,6 +3561,7 @@ class Game(PlaytestFeatures):
 
     def choose_story_winner(self):
         """Resolve the 200-line meta choice without changing tetromino geometry."""
+        self.stop_winner_choice_music()
         if self.winner_choice == 0:
             self.story_winner = "guardians"
             self.guardians_route = True
@@ -3272,7 +3569,9 @@ class Game(PlaytestFeatures):
             self.session_has_victory = True
             self.consecutive_game_overs = 0
             self.horror_piece_mode = False
-            self.guardians_gone_this_run = False
+            # The victory scene still uses its own action art, but once free
+            # play begins there are only ordinary tetrominoes and no Guardian voices.
+            self.guardians_gone_this_run = True
             # Guardians victory also returns the entire stack to classic sprite-free Tetris blocks.
             for row in self.board:
                 for cell in row:
@@ -3284,6 +3583,9 @@ class Game(PlaytestFeatures):
             self.story_winner = "phobos"
             self.guardians_route = False
             self.phobos_route = True
+            # Start the post-choice route with its dedicated theme.  When it
+            # ends MusicPool refills from user_music/phobos as usual.
+            self.music.phobos_opening_pending = True
             self.session_has_victory = False
             # 80% horror set, 20% ordinary. If a future horror sprite pack is absent,
             # rendering safely falls back to the ordinary exact tetromino art.
@@ -3301,6 +3603,7 @@ class Game(PlaytestFeatures):
                             cell["plain"] = True
             self.story200_stage = "phobos_win"
         self.prepare_victory()
+        self.start_route_choice_voice("phobos" if self.phobos_route else "guardians")
 
     def continue_after_story200(self):
         self.story_overlay = None
@@ -3313,6 +3616,20 @@ class Game(PlaytestFeatures):
         shade=pygame.Surface((WINDOW_W,WINDOW_H),pygame.SRCALPHA); shade.fill((0,0,0,165)); self.canvas.blit(shade,(0,0))
         self.ensure_story100_assets()
         if self.draw_victory():
+            return
+        if self.story200_stage == "vtd_outro":
+            self.canvas.fill((0, 0, 0))
+            if self.vtd_observer:
+                self.draw_story100_sprite(
+                    self.vtd_observer, (WINDOW_W // 2, 475), 720, 2
+                )
+            self.draw_wrapped_center(
+                "VTD", 90, WINDOW_W - 100, self.big, (150, 235, 165)
+            )
+            self.draw_wrapped_center(
+                "СЕАНС ЗАВЕРШИТСЯ ВМЕСТЕ С ПРИЛОЖЕНИЕМ",
+                900, WINDOW_W - 100, self.small, (190, 205, 195)
+            )
             return
         if self.story200_stage == "cinematic_reverse":
             title=self.small.render("200 LINES — THE SPELL BREAKS",True,(225,175,255)); self.canvas.blit(title,title.get_rect(center=(WINDOW_W//2,80)))
@@ -3376,6 +3693,9 @@ class Game(PlaytestFeatures):
                 pygame.draw.rect(self.canvas,COLORS["text"],r,2)
                 tx=self.font.render(label,True,COLORS["text"]); self.canvas.blit(tx,tx.get_rect(center=r.center))
             h=self.small.render("← → / MOUSE выбрать   SPACE / CLICK подтвердить   можно вводить секретный код",True,COLORS["text"]); self.canvas.blit(h,h.get_rect(center=(WINDOW_W//2,650)))
+            if self.story200_code_message:
+                note=self.font.render(self.story200_code_message,True,(250,210,125))
+                self.canvas.blit(note,note.get_rect(center=(WINDOW_W//2,735)))
             return
         if self.story200_stage == "jetix_thanks":
             self.canvas.fill((5,5,8))

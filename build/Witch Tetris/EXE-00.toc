@@ -57,7 +57,7 @@
  [],
  False,
  False,
- 1788730220,
+ 1788798069,
  [('runw',
    '/Users/user/Documents/Games/Witch_tetris/.venv/lib/python3.13/site-packages/PyInstaller/bootloader/Darwin-64bit/runw',
    'EXECUTABLE')],
