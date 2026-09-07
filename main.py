@@ -15,12 +15,12 @@ from phobos_dialogue import load_phobos_dialogue
 from ending import Ending
 
 # ============================================================
-# W.I.T.C.H. Tetris — Pygame build v6.41-rc9
+# W.I.T.C.H. Tetris — Pygame build v6.41-rc10
 # Full-color 50x50 source cells, auto-fit, transparency, Hold, story checkpoints and secret-code system.
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.41-rc9"
+BUILD_VERSION = "6.41-rc10"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
@@ -2098,7 +2098,10 @@ class Game(PlaytestFeatures):
         self.secret_buffer = ""
         self.physical_secret_buffer = ""
         if action == "phobos_thanks":
-            self.phobos_laugh()
+            # After the Guardians' victory this hidden response is disabled:
+            # free play must stay free of Phobos.
+            if not self.guardians_route:
+                self.phobos_laugh()
         elif action == "clear_board":
             self.board=[[None for _ in range(BOARD_W)] for _ in range(BOARD_H)]
             self.pending_clear=None
@@ -2907,8 +2910,14 @@ class Game(PlaytestFeatures):
             if self.story_overlay == 200:
                 if self.story200_stage == "vtd_outro":
                     return
-                if self.story200_stage in ("guardians_win","phobos_win"):
-                    if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE): self.continue_after_story200()
+                if self.story200_stage == "guardians_win":
+                    # The Guardians' celebration is a silent music-only scene.
+                    # Any ordinary key enters free play.
+                    self.continue_after_story200()
+                    return
+                if self.story200_stage == "phobos_win":
+                    if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE):
+                        self.continue_after_story200()
                     return
                 cinematic_order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
                 if key in (pygame.K_x, pygame.K_ESCAPE) or scancode == SC_X:
@@ -3401,7 +3410,9 @@ class Game(PlaytestFeatures):
             self.session_has_victory = True
             self.consecutive_game_overs = 0
             self.horror_piece_mode = False
-            self.guardians_gone_this_run = False
+            # The victory scene still uses its own action art, but once free
+            # play begins there are only ordinary tetrominoes and no Guardian voices.
+            self.guardians_gone_this_run = True
             # Guardians victory also returns the entire stack to classic sprite-free Tetris blocks.
             for row in self.board:
                 for cell in row:
