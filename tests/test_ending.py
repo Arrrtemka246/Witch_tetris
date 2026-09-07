@@ -90,6 +90,7 @@ class EndingTests(unittest.TestCase):
             g.finish_meta_video()
         leave.assert_called_once_with(restart=False)
         self.assertFalse(g.running)
+        g.running=True
 
     def test_story200_porn_code_starts_video_and_returns_confirmation(self):
         g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
