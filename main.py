@@ -15,12 +15,12 @@ from phobos_dialogue import load_phobos_dialogue
 from ending import Ending
 
 # ============================================================
-# W.I.T.C.H. Tetris — Pygame build v6.41-rc12
+# W.I.T.C.H. Tetris — Pygame build v6.41-rc13
 # Full-color 50x50 source cells, auto-fit, transparency, Hold, story checkpoints and secret-code system.
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.41-rc12"
+BUILD_VERSION = "6.41-rc13"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
