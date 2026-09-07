@@ -78,6 +78,11 @@ class EndingTests(unittest.TestCase):
         self.assertFalse(g.intro_boot_active)
         self.assertEqual(g.intro_scene,0)
 
+    def test_first_menu_key_does_not_reference_choice_only_state(self):
+        g=self.g; g.reset(); g.mode="menu"; g.running=True
+        g.handle_keydown(pygame.K_DOWN)
+        self.assertTrue(g.running)
+
     def test_story200_matrix_code_starts_video_and_quits(self):
         g=self.g; g.reset(); g.mode='game'; g.story_overlay=200; g.story200_stage='choice'
         with patch.object(g,'begin_meta_video') as begin:

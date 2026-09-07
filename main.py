@@ -15,12 +15,12 @@ from phobos_dialogue import load_phobos_dialogue
 from ending import Ending
 
 # ============================================================
-# W.I.T.C.H. Tetris — Pygame build v6.41-rc8
+# W.I.T.C.H. Tetris — Pygame build v6.41-rc9
 # Full-color 50x50 source cells, auto-fit, transparency, Hold, story checkpoints and secret-code system.
 # ============================================================
 
 FPS = 60
-BUILD_VERSION = "6.41-rc8"
+BUILD_VERSION = "6.41-rc9"
 BOARD_W = 10
 BOARD_H = 20
 CELL = 50
@@ -2803,7 +2803,8 @@ class Game(PlaytestFeatures):
             return
         if scancode is not None:
             self.held_scancodes.add(scancode)
-        if not self.secret_gameplay_context():
+        story200_secret_input = self.story200_choice_active()
+        if not self.secret_gameplay_context() and not story200_secret_input:
             self.secret_buffer = ""
             self.physical_secret_buffer = ""
 
