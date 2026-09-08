@@ -51,7 +51,7 @@ PHOBOS_FACE_DIR = PHOBOS_MENU_DIR / "faces"
 MUSIC_ROOT = ASSET_DIR / "audio" / "music"
 CUTSCENE_MUSIC_ROOT = MUSIC_ROOT / "cutscenes"
 USER_MUSIC_ROOT = ASSET_DIR / "audio" / "user_music"
-ROUTE_CHOICE_VOICE_ROOT = ASSET_DIR / "audio" / "voice" / "route_choice"
+ROUTE_CHOICE_VOICE_ROOT = ASSET_DIR / "audio" / "voice" / "route_story"
 WINNER_CHOICE_MUSIC_DIR = CUTSCENE_MUSIC_ROOT / "winner_choice"
 PHASE_MUSIC = {
     -1: MUSIC_ROOT / "menu",
@@ -635,6 +635,8 @@ class Game(PlaytestFeatures):
         pygame.init()
         try:
             pygame.mixer.init()
+            pygame.mixer.set_num_channels(max(8, pygame.mixer.get_num_channels()))
+            pygame.mixer.set_reserved(3)
         except pygame.error as exc:
             print(f"[audio] pygame.mixer unavailable: {exc}")
         pygame.display.set_caption(f"W.I.T.C.H. Tetris — Pygame v{BUILD_VERSION}")
@@ -933,6 +935,7 @@ class Game(PlaytestFeatures):
         # Reserved exclusively for the post-choice reverse lines and the
         # threshold before Phobos's room. No ordinary dialogue may steal it.
         self.route_story_channel = pygame.mixer.Channel(2) if pygame.mixer.get_init() else None
+        self.route_story_sound = None
         self.voice_paths = {name: VOICE_DIR / fn for name, fn in {
             "porn": "porn_reaction.mp3", "start": "meridian_mine.mp3", "200": "lines_200_rage.mp3",
             "tetris": "not_bad.mp3", "dark": "dark_side.mp3", "pause_hint": "pause_hint.mp3",
@@ -1028,6 +1031,15 @@ class Game(PlaytestFeatures):
         self.empty_roster_bored = False
         self.empty_roster_bored_at = None
         self.load_settings()
+        self.refresh_menu_items()
+        # Menu gag for a disabled Phobos.  His menu sprite intentionally remains
+        # visible, but becomes completely static.  If the setting was already
+        # disabled when the app started, use the quiet "..." state immediately;
+        # the longer fourth-wall line is reserved for the first return after the
+        # player actively switches Phobos off during this session.
+        self.phobos_menu_first_line_pending = False
+        self.phobos_menu_dialogue = "..." if not self.phobos_enabled else ""
+        self._phobos_menu_last_mode = self.mode
         self.phobos_deleted_win = False
         self.phobos_room_data = {"random_chains": [], "event_reactions": {}, "spam_reactions": []}
         rp = PHOBOS_ROOM_DIR / "replicas.json"
@@ -1193,6 +1205,9 @@ class Game(PlaytestFeatures):
         if not hasattr(self, "consecutive_game_overs"):
             self.consecutive_game_overs = 0
         self.story_overlay = None
+        # Collection replay is transient UI context, never gameplay state.
+        # A fresh game must not inherit it from a cutscene preview.
+        self.collection_cutscene = False
         self.story_seen = set()
         self.story100_tick = 0
         self.story100_stage = "idle"
@@ -1204,11 +1219,8 @@ class Game(PlaytestFeatures):
         self.story_winner = None
         self.story200_code_message = ""
         self.story200_artem_count = 0
-<<<<<<< HEAD
         self.congrats_story_quit = False
         self.congrats_story_quit_timer = 0
-=======
->>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
         self.vtd_story_quit = False
         self.phobos_route = False
         self.guardians_route = False
@@ -1608,25 +1620,34 @@ class Game(PlaytestFeatures):
         self.queued_voice_delay = max(0, delay_frames)
 
     def start_route_choice_voice(self, route):
-        """Start the guaranteed one-shot voice sequence after the final choice."""
+        """Play the selected route reaction exactly once."""
         custom = self.music.scan(ROUTE_CHOICE_VOICE_ROOT / route)
         sequence = []
+
         if route == "phobos":
-            # Together these existing clips say: “Ха-ха-ха! Блестяще.”
-            for name in ("brilliant_laugh", "brilliant"):
-                path = self.voice_paths.get(name)
-                if path and path.exists():
-                    sequence.append(path)
-        if custom and route != "phobos":
-            # The Guardians route plays Will's reverse teaser here.  Phobos's
-            # custom teaser is reserved for the transition into his room.
-            sequence.append(random.choice(custom))
+            # Exactly ONE laugh immediately after choosing Phobos.
+            path = self.voice_paths.get("brilliant_laugh")
+            if path and path.exists():
+                sequence.append(path)
+
+        elif route == "guardians":
+            # Will's reversed teaser plays immediately after the Guardians win.
+            if custom:
+                sequence.append(random.choice(custom))
+            else:
+                print("[route story voice] No Guardians reverse teaser found in route_story/guardians")
+
+        # Phobos's custom reverse is deliberately NOT queued here.
+        # It is played once at the threshold of his room.
         self.route_choice_voice_queue = sequence
         self.route_choice_voice_active = bool(sequence)
         self.queued_voice = None
         self.queued_voice_delay = 0
+
         if self.route_story_channel:
             self.route_story_channel.stop()
+            self.route_story_channel.set_volume(1.0)
+        self.route_story_sound = None
         self.update_route_choice_voice()
 
     def play_route_story_sound(self, path):
@@ -1636,27 +1657,35 @@ class Game(PlaytestFeatures):
         try:
             sound = pygame.mixer.Sound(str(path))
             sound.set_volume(1.0)
+            self.route_story_sound = sound
+            self.route_story_channel.stop()
+            self.route_story_channel.set_volume(1.0)
             self.route_story_channel.play(sound)
             self.music.duck(True)
             return True
         except pygame.error as exc:
+            self.route_story_sound = None
             print(f"[route story voice] Could not play {path.name}: {exc}")
             return False
 
     def update_route_choice_voice(self):
-        """Play the route clips in order and never overlap them."""
+        """Play route clips in order and never overlap or repeat them."""
         if not self.route_choice_voice_active:
             return
         if not self.route_story_channel:
             self.route_choice_voice_queue.clear()
             self.route_choice_voice_active = False
+            self.route_story_sound = None
             return
         if self.route_story_channel.get_busy():
             return
+
+        self.route_story_sound = None
         while self.route_choice_voice_queue:
             path = self.route_choice_voice_queue.pop(0)
             if self.play_route_story_sound(path):
                 return
+
         self.route_choice_voice_active = False
         self.music.duck(False)
 
@@ -1936,9 +1965,14 @@ class Game(PlaytestFeatures):
                         self.queue_external_voice(random.choice(pool), delay_frames=2)
         old_phase = 0 if before < LINES_RESISTANCE else 1 if before < LINES_PHASE2 else 2
         if before < LINES_RESISTANCE <= self.lines and 100 not in self.story_seen:
+            # This threshold was reached by live gameplay, never by Collection replay.
+            self.collection_cutscene = False
             self.story_seen.add(100)
             self.start_story100()
         elif before < LINES_PHASE2 <= self.lines and 200 not in self.story_seen:
+            # Same guard for 200: a stale Collection flag must never kick the
+            # player back to the gallery after honestly reaching the milestone.
+            self.collection_cutscene = False
             self.story_seen.add(200)
             self.consecutive_game_overs = 0
             self.story_overlay = 200
@@ -2048,13 +2082,10 @@ class Game(PlaytestFeatures):
 
         if action == "matrix":
             self.begin_meta_video("matrix", "matrix_quit")
-<<<<<<< HEAD
             return
 
         if action == "congrats":
             self.start_congrats_story_exit()
-=======
->>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
             return
 
         if action == "vtd":
@@ -2083,52 +2114,6 @@ class Game(PlaytestFeatures):
             # A missing/unavailable soundtrack must not leave this exit code
             # stuck on the choice screen.
             self.running = False
-<<<<<<< HEAD
-=======
-            return
-
-        if action == "chatgpt":
-            try:
-                webbrowser.open("https://chatgpt.com/", new=2)
-            except Exception:
-                pass
-            return
-
-        if action == "suno":
-            try:
-                webbrowser.open("https://suno.com/", new=2)
-            except Exception:
-                pass
-            return
-
-        if action == "guardians":
-            self.winner_choice = 0
-            self.choose_story_winner()
-            return
-
-        if action == "phobos":
-            self.winner_choice = 1
-            self.choose_story_winner()
-            return
-
-        if action == "artem":
-            self.story200_artem_count += 1
-            if self.story200_artem_count == 1:
-                self.story200_code_message = "СПАСИБО, НО ДЕЛАЙ ВЫБОР."
-            elif self.story200_artem_count == 2:
-                self.story200_code_message = "ПРОСТО ДЕЛАЙ ВЫБОР."
-            else:
-                self.story200_code_message = ""
-            return
-
-        if action == "jetix":
-            self.story200_stage = "jetix_thanks"
-            self.story200_tick = 0
-            return
-
-        if action == "porn_gallery":
-            self.begin_meta_video("porn", "porn_confirm")
->>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
             return
 
         if action == "chatgpt":
@@ -2416,10 +2401,7 @@ class Game(PlaytestFeatures):
             # Existing easter eggs retained.
             "porn": "porn_gallery", "порн": "porn_gallery",
             "jetix": "jetix", "джетикс": "jetix",
-<<<<<<< HEAD
             "me": "congrats", "we": "congrats",
-=======
->>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
         }
         physical_aliases = {
             code: action for code, action in aliases.items()
@@ -2502,9 +2484,11 @@ class Game(PlaytestFeatures):
         self.lines += amount
         old_phase = 0 if before < LINES_RESISTANCE else 1 if before < LINES_PHASE2 else 2
         if before < LINES_RESISTANCE <= self.lines and 100 not in self.story_seen:
+            self.collection_cutscene = False
             self.story_seen.add(100)
             self.start_story100()
         elif before < LINES_PHASE2 <= self.lines and 200 not in self.story_seen:
+            self.collection_cutscene = False
             self.story_seen.add(200)
             self.consecutive_game_overs = 0
             self.story_overlay = 200
@@ -2518,17 +2502,53 @@ class Game(PlaytestFeatures):
         elif self.phase_index() != old_phase:
             self.music.set_phase(self.phase_index(), force=True)
 
+    def maybe_pause_reaction(self, leaving=False):
+        """Occasional Phobos reaction to pausing/resuming, never menu-item narration.
+
+        The project already ships a small pause reaction bank. Earlier builds
+        kept the bank but disconnected it from toggle_pause(); this reconnects
+        it while preserving silence after Phobos is removed or defeated.
+        """
+        if (
+            not self.phobos_enabled
+            or self.guardians_route
+            or self.vtd_active
+            or self.story_overlay is not None
+            or self.game_over
+            or not self.pause_reaction_pool
+        ):
+            return False
+        if self.voice_channel and self.voice_channel.get_busy():
+            return False
+
+        # Pausing gets a slightly higher reaction chance than resuming.
+        chance = 0.52 if not leaving else 0.34
+        if random.random() >= chance:
+            return False
+
+        unused = [p for p in self.pause_reaction_pool if p not in self.pause_reaction_used and p.exists()]
+        if not unused:
+            return False
+        path = random.choice(unused)
+        if self.play_external_voice(path, force=True):
+            self.pause_reaction_used.add(path)
+            return True
+        return False
+
     def toggle_pause(self):
         self.paused = not self.paused
         if self.paused:
             self.cancel_secret_effects(restart_music=True)
             self.music.pause()
-            # Pause is a menu state: no Phobos labels or contextual remarks.
+            # Keep pause-menu navigation silent, but allow a contextual reaction
+            # to the act of pausing itself.
             self.pause_voice_pending = None
+            self.maybe_pause_reaction(leaving=False)
         else:
             self.pause_voice_pending = None
             if not self.vtd_active:
                 self.music.resume()
+            self.maybe_pause_reaction(leaving=True)
 
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -2599,6 +2619,29 @@ class Game(PlaytestFeatures):
         except Exception as exc:
             print("[settings]",exc)
 
+    def refresh_menu_items(self):
+        """Hide Collection completely while Phobos is disabled.
+
+        Preserve the currently selected command by name when possible so a
+        removed COLLECTION entry cannot make menu_index activate QUIT by accident.
+        """
+        old_items = list(getattr(self, "menu_items", []))
+        old_index = int(getattr(self, "menu_index", 0))
+        selected = old_items[old_index] if 0 <= old_index < len(old_items) else None
+
+        items = ["NEW GAME", "RECORDS", "SETTINGS"]
+        if self.phobos_enabled:
+            items.append("COLLECTION")
+        items.append("QUIT")
+        self.menu_items = items
+
+        if selected in items:
+            self.menu_index = items.index(selected)
+        else:
+            # If the removed item itself was selected, fall back to SETTINGS
+            # instead of silently moving the highlight onto QUIT.
+            self.menu_index = items.index("SETTINGS")
+
     def settings_root_items(self):
         return ["GAME", "CHARACTERS", "BACK"]
 
@@ -2640,9 +2683,44 @@ class Game(PlaytestFeatures):
         key,label=item
         if key == "BACK":
             self.settings_page="root"; self.settings_index=0; self.settings_message=""; return
-        if key=="PHOBOS": self.phobos_enabled=not self.phobos_enabled
-        else: self.character_enabled[key]=not self.character_enabled[key]
+        if key=="PHOBOS":
+            was_enabled = self.phobos_enabled
+            self.phobos_enabled = not self.phobos_enabled
+            if was_enabled and not self.phobos_enabled:
+                # First return to the main menu gets the full fourth-wall line.
+                self.phobos_menu_first_line_pending = True
+                self.phobos_menu_dialogue = ""
+                if self.voice_channel:
+                    self.voice_channel.stop()
+                if self.route_story_channel:
+                    self.route_story_channel.stop()
+                self.queued_voice = None
+                self.queued_voice_delay = 0
+            elif self.phobos_enabled:
+                # Bringing Phobos back restores the normal animated menu presence
+                # and arms the gag to start from scratch on a future deletion.
+                self.phobos_menu_first_line_pending = False
+                self.phobos_menu_dialogue = ""
+            self.refresh_menu_items()
+        else:
+            self.character_enabled[key]=not self.character_enabled[key]
         self.save_settings()
+
+    def update_phobos_menu_presence_gag(self):
+        """Advance the disabled-Phobos menu joke only when a screen enters MENU."""
+        previous_mode = getattr(self, "_phobos_menu_last_mode", self.mode)
+        if self.mode == "menu" and previous_mode != "menu":
+            if self.phobos_enabled:
+                self.phobos_menu_dialogue = ""
+                self.phobos_menu_first_line_pending = False
+            elif self.phobos_menu_first_line_pending:
+                self.phobos_menu_dialogue = (
+                    "Не обращай внимания, это всего лишь спрайт. Меня здесь нет."
+                )
+                self.phobos_menu_first_line_pending = False
+            else:
+                self.phobos_menu_dialogue = "..."
+        self._phobos_menu_last_mode = self.mode
 
     def settings_adjust(self, delta):
         item = self.settings_items()[self.settings_index]
@@ -3100,22 +3178,15 @@ class Game(PlaytestFeatures):
                     return
                 if self.story200_stage == "guardians_win":
                     # The Guardians' celebration is a silent music-only scene.
-<<<<<<< HEAD
                     # The hidden route line must finish before free play starts.
                     if self.route_choice_voice_active:
                         return
-=======
-                    # Any ordinary key enters free play.
->>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
                     self.continue_after_story200()
                     return
                 if self.story200_stage == "phobos_win":
                     if key in (pygame.K_SPACE,pygame.K_RETURN,pygame.K_ESCAPE):
-<<<<<<< HEAD
                         if self.route_choice_voice_active:
                             return
-=======
->>>>>>> 16c17e8f1820ecebd067733b2dbb44c30e8d4147
                         self.continue_after_story200()
                     return
                 cinematic_order=["cinematic_reverse","cinematic_heart","cinematic_phobos","cinematic_break","choice"]
@@ -3129,8 +3200,23 @@ class Game(PlaytestFeatures):
                     if key in (pygame.K_SPACE,pygame.K_RETURN):
                         i=cinematic_order.index(self.story200_stage)
                         next_stage=cinematic_order[i+1]
-                        if next_stage == "choice": self.enter_story200_choice()
-                        else: self.story200_stage=next_stage; self.story200_tick=0
+
+                        if next_stage == "choice" and self.collection_cutscene:
+                            # Collection replay ends after Phobos's
+                            # "Нет, так не может кончиться" beat.
+                            # The 200-line winner choice exists only in gameplay.
+                            self.story_overlay = None
+                            self.collection_cutscene = False
+                            self.mode = "collection"
+                            self.collection_page = "CUTSCENES"
+                            self.collection_item_index = 0
+                            self.music.leave_special(restart=False)
+                            self.music.set_phase(-1, force=True)
+                        elif next_stage == "choice":
+                            self.enter_story200_choice()
+                        else:
+                            self.story200_stage=next_stage
+                            self.story200_tick=0
                     return
                 if self.story200_stage == "choice":
                     if key in (pygame.K_LEFT, pygame.K_a): self.winner_choice = 0
@@ -3225,6 +3311,7 @@ class Game(PlaytestFeatures):
 
     def update(self):
         self.menu_tick += 1
+        self.update_phobos_menu_presence_gag()
         if self.mode == 'ending': return
         if self.mode == 'game' and self.game_over and self.guardians_route and self.story_winner == 'guardians':
             if not hasattr(self, 'ending'): self.ending=Ending()
@@ -3318,7 +3405,9 @@ class Game(PlaytestFeatures):
                     q = self.queued_voice; self.queued_voice = None
                     self.play_external_voice(q, force=True)
             else:
-                self.music.duck(False)
+                route_busy = bool(self.route_story_channel and self.route_story_channel.get_busy())
+                if not route_busy:
+                    self.music.duck(False)
                 if self.vtd_channel: self.vtd_channel.set_volume(1.0)
         if self.vtd_story_quit and self.vtd_channel and not self.vtd_channel.get_busy():
             self.vtd_story_quit = False
@@ -3665,6 +3754,9 @@ class Game(PlaytestFeatures):
                             cell["plain"] = True
             self.story200_stage = "phobos_win"
         self.prepare_victory()
+        if self.phobos_route:
+            # The only Phobos laugh is queued by start_route_choice_voice().
+            self.victory_laughed = True
         self.start_route_choice_voice("phobos" if self.phobos_route else "guardians")
 
     def continue_after_story200(self):
@@ -4790,6 +4882,11 @@ class Game(PlaytestFeatures):
         self.music.set_phase(-1, force=True)
 
     def open_collection(self):
+        # Collection disappears with Phobos.  Keep this hard guard too, so a
+        # stale click/index or an internal call cannot open it while he is off.
+        if not self.phobos_enabled:
+            self.mode = "menu"
+            return
         self.mode="collection"; self.collection_page="root"; self.collection_item_index=0
         self.collection_audio_item=None
         self.collection_music_items=self.scan_collection_music()
@@ -4890,11 +4987,22 @@ class Game(PlaytestFeatures):
         if self.collection_page=="root": self.collection_page=item; self.collection_item_index=0; return
         if self.collection_page=="MINIGAMES": self.start_minigame(item); return
         if self.collection_page=="CUTSCENES":
-            self.collection_cutscene=True
             if item.startswith("INTRO"):
+                self.collection_cutscene = True
                 self.restart_intro()
             elif item.startswith("100"):
-                self.start_new_game(); self.collection_cutscene=True; self.lines=100; self.start_story100()
+                self.start_new_game()
+                self.collection_cutscene = True
+                self.lines = 100
+                self.start_story100()
+
+                # Collection replay starts at the actual cinematic.
+                # In normal gameplay the glitch/blackout/terminal/wait_key
+                # scare remains unchanged.
+                self.story100_stage = "hall"
+                self.story100_tick = 0
+                self.story100_sfx_played.clear()
+                self.play_cutscene_music("lines100")
             elif item.startswith("200"):
                 self.start_new_game(); self.collection_cutscene=True; self.lines=200; self.story_seen.add(200); self.story_overlay=200; self.story200_stage="cinematic_reverse"; self.story200_tick=0; self.winner_choice=0; self.music.enter_special(); self.play_cutscene_music("lines200")
             return
@@ -4967,7 +5075,9 @@ class Game(PlaytestFeatures):
         try:
             pygame.mixer.music.stop()
             pygame.mixer.music.load(str(fp))
-            pygame.mixer.music.play(-1)
+            # Play this minigame track once. update_minigame() will choose
+            # another track automatically when it ends.
+            pygame.mixer.music.play(0)
             pygame.mixer.music.set_volume(.68)
         except pygame.error as exc:
             print(f"[minigame music] {exc}")
@@ -5222,6 +5332,12 @@ class Game(PlaytestFeatures):
     def update_minigame(self):
         if self.mg_over: return
         self.mg_tick+=1; name=self.minigame; self.mg_level=1+self.mg_tick//900
+
+        # Minigame playlist: when the current track finishes, pick another one.
+        # play_minigame_music() already avoids mg_last_music when alternatives exist.
+        if pygame.mixer.get_init() and not pygame.mixer.music.get_busy():
+            self.play_minigame_music(name)
+
         keys=pygame.key.get_pressed()
         left_held=bool(keys[pygame.K_LEFT] or keys[pygame.K_a] or SC_A in self.held_scancodes)
         right_held=bool(keys[pygame.K_RIGHT] or keys[pygame.K_d] or SC_D in self.held_scancodes)
@@ -5851,6 +5967,42 @@ class Game(PlaytestFeatures):
             press = self.small.render("SPACE / ENTER", True, COLORS["text"])
             self.canvas.blit(press, press.get_rect(center=(WINDOW_W//2, WINDOW_H//2+95)))
 
+    def draw_phobos_absent_menu_dialogue(self):
+        """Draw the silent menu dialogue left behind by a disabled Phobos."""
+        box_rect = pygame.Rect(58, WINDOW_H - 215, WINDOW_W - 116, 150)
+        box = pygame.Surface(box_rect.size, pygame.SRCALPHA)
+        box.fill((7, 7, 12, 220))
+        pygame.draw.rect(box, (92, 82, 102, 235), box.get_rect(), 2, border_radius=8)
+        self.canvas.blit(box, box_rect.topleft)
+
+        # Muted label/border: the sprite is present, but there is deliberately no
+        # active Phobos highlight, voice pulse or menu-idle animation.
+        self.text("ФОБОС", box_rect.x + 22, box_rect.y + 15, self.small, (150, 145, 158))
+        line = self.phobos_menu_dialogue
+        if line == "...":
+            dots = self.small.render("...", True, (175, 170, 182))
+            self.canvas.blit(dots, (box_rect.x + 24, box_rect.bottom - 43))
+            return
+
+        words = line.split()
+        rows, current = [], ""
+        max_width = box_rect.width - 48
+        for word in words:
+            test = (current + " " + word).strip()
+            if self.font.size(test)[0] <= max_width:
+                current = test
+            else:
+                if current:
+                    rows.append(current)
+                current = word
+        if current:
+            rows.append(current)
+        y = box_rect.y + 50
+        for row in rows[:2]:
+            surf = self.font.render(row, True, (215, 212, 220))
+            self.canvas.blit(surf, (box_rect.x + 24, y))
+            y += self.font.get_height() + 8
+
     def draw_menu(self):
         self.draw_background("menu")
         # Left menu slab. The right edge is intentionally placed under Phobos's elbow.
@@ -5871,19 +6023,30 @@ class Game(PlaytestFeatures):
         self.text("↑ ↓ / mouse   SPACE / ENTER / click", 88, 760, self.small)
 
         if self.phobos_body:
-            # v6.8: slightly livelier idle without turning him into a bouncing sprite.
-            # Slow breathing + tiny weight shift; talking adds only a subtle pulse.
-            talking = bool(self.voice_channel and self.voice_channel.get_busy())
-            bob = int(3 * math.sin(self.menu_tick / 34.0) + 1.5 * math.sin(self.menu_tick / 79.0))
-            sway = int(2 * math.sin(self.menu_tick / 61.0))
-            breathe = 1.0 + 0.0025 * math.sin(self.menu_tick / 48.0)
-            if talking:
-                bob += int(2 * math.sin(self.menu_tick / 5.5))
-                sway += int(math.sin(self.menu_tick / 7.0))
-            target_h = max(1, int(900 * breathe))
-            target_w = int(self.phobos_body.get_width() * target_h / self.phobos_body.get_height())
-            body = pygame.transform.scale(self.phobos_body, (target_w, target_h))
-            self.canvas.blit(body, (WINDOW_W-target_w+30+sway, 100+bob-(target_h-900)))
+            if not self.phobos_enabled:
+                # He is "deleted" from the game, not from the menu artwork: keep
+                # the exact sprite on screen but remove every idle/talking motion.
+                target_h = 900
+                target_w = int(self.phobos_body.get_width() * target_h / self.phobos_body.get_height())
+                body = pygame.transform.scale(self.phobos_body, (target_w, target_h))
+                self.canvas.blit(body, (WINDOW_W-target_w+30, 100))
+            else:
+                # v6.8: slightly livelier idle without turning him into a bouncing sprite.
+                # Slow breathing + tiny weight shift; talking adds only a subtle pulse.
+                talking = bool(self.voice_channel and self.voice_channel.get_busy())
+                bob = int(3 * math.sin(self.menu_tick / 34.0) + 1.5 * math.sin(self.menu_tick / 79.0))
+                sway = int(2 * math.sin(self.menu_tick / 61.0))
+                breathe = 1.0 + 0.0025 * math.sin(self.menu_tick / 48.0)
+                if talking:
+                    bob += int(2 * math.sin(self.menu_tick / 5.5))
+                    sway += int(math.sin(self.menu_tick / 7.0))
+                target_h = max(1, int(900 * breathe))
+                target_w = int(self.phobos_body.get_width() * target_h / self.phobos_body.get_height())
+                body = pygame.transform.scale(self.phobos_body, (target_w, target_h))
+                self.canvas.blit(body, (WINDOW_W-target_w+30+sway, 100+bob-(target_h-900)))
+
+        if not self.phobos_enabled and self.phobos_menu_dialogue:
+            self.draw_phobos_absent_menu_dialogue()
 
         # Facial states are kept as assets for later seamless head-region compositing.
         # v6.6 deliberately does not draw a separate portrait box over Phobos.

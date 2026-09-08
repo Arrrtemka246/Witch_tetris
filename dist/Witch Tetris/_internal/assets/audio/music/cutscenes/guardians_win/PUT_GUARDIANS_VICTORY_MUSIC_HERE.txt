@@ -1,6 +1,0 @@
-Put your music for the Guardians' victory scene in this folder.
-
-Supported formats: .mp3, .ogg, .wav.
-If several tracks are present, the game randomly chooses one each time.
-The scene has no character voice lines and waits for any key.
-If this folder contains no music file, the celebration remains silent.

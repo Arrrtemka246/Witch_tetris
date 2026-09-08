@@ -5,7 +5,7 @@ a = Analysis(
     ['standalone_launcher.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets', 'assets'), ('build_assets/icon.png', 'build_assets')],
+    datas=[('assets', 'assets'), ('build_assets/icon.png', 'build_assets'), ('ending_credits.txt', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
