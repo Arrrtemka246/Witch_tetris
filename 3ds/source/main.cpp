@@ -1898,7 +1898,7 @@ int main() {
         C2D_TextBufClear(g_textBuf);
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 
-        const float slider=CONFIG_3D_SLIDERSTATE;
+        const float slider=osGet3DSliderState();
         auto renderScene=[&](C3D_RenderTarget* topTarget,float eye){
             const float endingElapsed=
                 (mode==Mode::Cutscene && cutscene.kind==CutsceneKind::Ending)
