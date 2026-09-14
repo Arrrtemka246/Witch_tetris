@@ -1,36 +1,46 @@
 #include <3ds.h>
 #include <citro2d.h>
 
+#include "audio_player.hpp"
+
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
+#include <map>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace {
+
 constexpr int BOARD_W = 10;
 constexpr int BOARD_H = 20;
 constexpr int CELL = 10;
-constexpr float BOARD_X = 112.0f;
+constexpr float BOARD_X = 150.0f;
 constexpr float BOARD_Y = 20.0f;
 constexpr int LOCK_DELAY_FRAMES = 30;
 constexpr int SOFT_DROP_FRAMES = 2;
+constexpr int FPS = 60;
 
 struct Point { int x; int y; };
 
 enum PieceKind : int { I = 0, O, T, S, Z, J, L, PIECE_COUNT };
 
 constexpr Point BASE_SHAPES[PIECE_COUNT][4] = {
-    {{0,0},{0,1},{0,2},{0,3}}, // I
-    {{0,0},{1,0},{0,1},{1,1}}, // O
-    {{0,0},{1,0},{2,0},{1,1}}, // T
-    {{0,0},{1,0},{1,1},{2,1}}, // S
-    {{1,0},{2,0},{0,1},{1,1}}, // Z
-    {{0,0},{0,1},{1,1},{2,1}}, // J
-    {{2,0},{0,1},{1,1},{2,1}}, // L
+    {{0,0},{0,1},{0,2},{0,3}},
+    {{0,0},{1,0},{0,1},{1,1}},
+    {{0,0},{1,0},{2,0},{1,1}},
+    {{0,0},{1,0},{1,1},{2,1}},
+    {{1,0},{2,0},{0,1},{1,1}},
+    {{0,0},{0,1},{1,1},{2,1}},
+    {{2,0},{0,1},{1,1},{2,1}},
 };
 
 const char* PIECE_NAMES[PIECE_COUNT] = {"I","O","T","S","Z","J","L"};
+const char* PIECE_CHARACTERS[PIECE_COUNT] = {
+    "CORNELIA", "BLUNK", "CALEB", "IRMA", "WILL", "TARANEE", "HAY LIN"
+};
 
 u32 PIECE_COLORS[PIECE_COUNT];
 Point SHAPES[PIECE_COUNT][4][4];
@@ -40,13 +50,13 @@ u32 color(u8 r, u8 g, u8 b, u8 a = 0xFF) {
 }
 
 void initColors() {
-    PIECE_COLORS[I] = color(0, 210, 220);
-    PIECE_COLORS[J] = color(20, 25, 235);
-    PIECE_COLORS[L] = color(242, 158, 0);
-    PIECE_COLORS[O] = color(242, 238, 0);
-    PIECE_COLORS[S] = color(0, 225, 25);
-    PIECE_COLORS[T] = color(165, 0, 235);
-    PIECE_COLORS[Z] = color(238, 0, 0);
+    PIECE_COLORS[I] = color(80, 205, 235);
+    PIECE_COLORS[J] = color(220, 95, 65);
+    PIECE_COLORS[L] = color(165, 215, 235);
+    PIECE_COLORS[O] = color(235, 190, 70);
+    PIECE_COLORS[S] = color(80, 170, 235);
+    PIECE_COLORS[T] = color(180, 125, 80);
+    PIECE_COLORS[Z] = color(225, 90, 160);
 }
 
 void rotateLikePython(const Point src[4], Point out[4]) {
@@ -101,10 +111,7 @@ public:
         spawnPiece();
     }
 
-    void togglePause() {
-        if (!gameOver_) paused_ = !paused_;
-    }
-
+    void togglePause() { if (!gameOver_) paused_ = !paused_; }
     bool paused() const { return paused_; }
     bool gameOver() const { return gameOver_; }
     int score() const { return score_; }
@@ -219,8 +226,6 @@ private:
     }
 
     int randomPiece() {
-        // Port of the default "Phobos" controlled-chaos selector in main.py:
-        // drought protection, repeat penalty, and a hard stop after triples.
         std::array<float, PIECE_COUNT> weights{};
         float total = 0.0f;
         const int recent = history_.empty() ? -1 : history_.back();
@@ -276,10 +281,14 @@ private:
     }
 
     void lockPiece() {
-        for (const Point& p : SHAPES[current_.kind][current_.rot]) {
+        for (int slot = 0; slot < 4; ++slot) {
+            const Point& p = SHAPES[current_.kind][current_.rot][slot];
             const int bx = current_.x + p.x;
             const int by = current_.y + p.y;
-            if (by >= 0 && by < BOARD_H && bx >= 0 && bx < BOARD_W) board_[by][bx] = current_.kind;
+            // Encoded cell = exact sprite fragment in phase1_cells.t3x.
+            // kind * 16 + rotation * 4 + source-fragment slot.
+            if (by >= 0 && by < BOARD_H && bx >= 0 && bx < BOARD_W)
+                board_[by][bx] = current_.kind * 16 + current_.rot * 4 + slot;
         }
         clearLines();
         if (!gameOver_) spawnPiece();
@@ -296,7 +305,7 @@ private:
             ++cleared;
             for (int pull = y; pull > 0; --pull) board_[pull] = board_[pull - 1];
             board_[0].fill(-1);
-            ++y; // re-check this row after pulling
+            ++y;
         }
         static constexpr int SCORE_TABLE[5] = {0, 100, 300, 500, 800};
         lines_ += cleared;
@@ -304,154 +313,790 @@ private:
     }
 };
 
+class AssetBank {
+public:
+    bool load(const std::string& key, const std::string& path) {
+        C2D_SpriteSheet s = C2D_SpriteSheetLoad(path.c_str());
+        if (!s) {
+            std::printf("[gfx] missing %s (%s)\n", key.c_str(), path.c_str());
+            return false;
+        }
+        sheets_[key] = s;
+        return true;
+    }
+
+    bool has(const std::string& key) const {
+        return sheets_.find(key) != sheets_.end();
+    }
+
+    C2D_Image image(const std::string& key, int index = 0) const {
+        C2D_Image empty{};
+        auto it = sheets_.find(key);
+        if (it == sheets_.end()) return empty;
+        return C2D_SpriteSheetGetImage(it->second, index);
+    }
+
+    void unloadAll() {
+        for (auto& kv : sheets_) C2D_SpriteSheetFree(kv.second);
+        sheets_.clear();
+    }
+
+    void loadCore() {
+        load("cells", "romfs:/gfx/phase1_cells.t3x");
+        const char* names[] = {
+            "bg_menu","bg_phase0","bg_phase1","bg_phase2",
+            "intro_castle","intro_throne","intro_phobos","intro_phobos_cast",
+            "intro_will","intro_will_final","intro_irma","intro_taranee",
+            "intro_cornelia","intro_haylin","intro_caleb","intro_blunk",
+            "l100_phobos","l100_will","l100_irma","l100_taranee",
+            "l100_cornelia","l100_haylin","l100_caleb","l100_heart",
+            "l200_sheet_phobos","l200_sheet_heart",
+            "ending_phobos","ending_witch",
+            "phobos_menu_body","phobos_room_bg","phobos_room_table",
+            "phobos_room_state0","phobos_room_state1","phobos_room_state2",
+            "phobos_room_state3","phobos_room_state4","phobos_room_state5",
+            "mg_blunk","mg_cedric","mg_cornelia","mg_irma","mg_phobos",
+            "mg_will","mg_heart"
+        };
+        for (const char* n : names) load(n, std::string("romfs:/gfx/") + n + ".t3x");
+        for (int i = 0; i < 6; ++i) {
+            char name[32];
+            std::snprintf(name, sizeof(name), "l200_collapse_%d", i);
+            load(name, std::string("romfs:/gfx/") + name + ".t3x");
+        }
+    }
+
+private:
+    std::map<std::string, C2D_SpriteSheet> sheets_;
+};
+
 C2D_TextBuf g_textBuf = nullptr;
+AssetBank g_assets;
 
 void drawText(const char* str, float x, float y, float scale, u32 col) {
     C2D_Text text;
     C2D_TextParse(&text, g_textBuf, str);
     C2D_TextOptimize(&text);
-    C2D_DrawText(&text, C2D_WithColor, x, y, 0.6f, scale, scale, col);
+    C2D_DrawText(&text, C2D_WithColor, x, y, 0.92f, scale, scale, col);
 }
 
-void drawCell(float x, float y, u32 col, bool ghost = false) {
-    if (ghost) {
-        C2D_DrawRectSolid(x + 1, y + 1, 0.25f, CELL - 2, CELL - 2, col);
-        return;
+void drawText(const std::string& str, float x, float y, float scale, u32 col) {
+    drawText(str.c_str(), x, y, scale, col);
+}
+
+void drawImageFit(C2D_Image img, float x, float y, float w, float h, float depth = 0.1f, bool cover = false, float alpha = 1.0f) {
+    if (!img.tex || !img.subtex || img.subtex->width <= 0 || img.subtex->height <= 0) return;
+    const float sx = w / img.subtex->width;
+    const float sy = h / img.subtex->height;
+    const float s = cover ? std::max(sx, sy) : std::min(sx, sy);
+    const float dw = img.subtex->width * s;
+    const float dh = img.subtex->height * s;
+    C2D_ImageTint tint;
+    C2D_ImageTint* tintPtr = nullptr;
+    if (alpha < 0.999f) {
+        C2D_AlphaImageTint(&tint, alpha);
+        tintPtr = &tint;
     }
-    C2D_DrawRectSolid(x, y, 0.3f, CELL - 1, CELL - 1, col);
-    C2D_DrawRectSolid(x + 1, y + 1, 0.31f, CELL - 3, 2, color(255,255,255,70));
+    C2D_DrawImageAt(img, x + (w - dw) * 0.5f, y + (h - dh) * 0.5f, depth, tintPtr, s, s);
+}
+
+void drawAssetFit(const std::string& key, float x, float y, float w, float h, float depth = 0.1f, bool cover = false, float alpha = 1.0f) {
+    if (!g_assets.has(key)) return;
+    drawImageFit(g_assets.image(key), x, y, w, h, depth, cover, alpha);
+}
+
+void drawFullscreenAsset(const std::string& key, float depth = 0.05f) {
+    drawAssetFit(key, 0, 0, 400, 240, depth, true);
+}
+
+void drawPanel(float x, float y, float w, float h, u32 border = 0) {
+    C2D_DrawRectSolid(x, y, 0.72f, w, h, color(5, 5, 12, 190));
+    if (border) {
+        C2D_DrawRectSolid(x, y, 0.73f, w, 2, border);
+        C2D_DrawRectSolid(x, y+h-2, 0.73f, w, 2, border);
+        C2D_DrawRectSolid(x, y, 0.73f, 2, h, border);
+        C2D_DrawRectSolid(x+w-2, y, 0.73f, 2, h, border);
+    }
+}
+
+void drawFallbackCell(float x, float y, int kind) {
+    C2D_DrawRectSolid(x, y, 0.52f, CELL - 1, CELL - 1, PIECE_COLORS[kind]);
+    C2D_DrawRectSolid(x + 1, y + 1, 0.53f, CELL - 3, 2, color(255,255,255,65));
+}
+
+void drawFragment(int encoded, float x, float y, float size = CELL, float depth = 0.54f) {
+    const int kind = std::max(0, std::min(PIECE_COUNT - 1, encoded / 16));
+    if (g_assets.has("cells")) {
+        C2D_Image img = g_assets.image("cells", encoded);
+        const float s = size / 24.0f;
+        C2D_DrawImageAt(img, x, y, depth, nullptr, s, s);
+    } else {
+        C2D_DrawRectSolid(x, y, depth, size - 1, size - 1, PIECE_COLORS[kind]);
+    }
 }
 
 void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false) {
-    const u32 col = ghost ? color(178, 108, 255, 80) : PIECE_COLORS[piece.kind];
-    for (const Point& p : SHAPES[piece.kind][piece.rot]) {
+    for (int slot = 0; slot < 4; ++slot) {
+        const Point& p = SHAPES[piece.kind][piece.rot][slot];
         const int gx = piece.x + p.x;
         const int gy = yOverride + p.y;
         if (gy < 0) continue;
-        drawCell(BOARD_X + gx * CELL, BOARD_Y + gy * CELL, col, ghost);
+        const float x = BOARD_X + gx * CELL;
+        const float y = BOARD_Y + gy * CELL;
+        if (ghost) {
+            C2D_DrawRectSolid(x + 2, y + 2, 0.49f, CELL - 4, CELL - 4, color(210,150,255,85));
+        } else {
+            drawFragment(piece.kind * 16 + piece.rot * 4 + slot, x, y);
+        }
     }
 }
 
 void drawMiniPiece(int kind, float x, float y) {
-    for (const Point& p : SHAPES[kind][0]) {
-        C2D_DrawRectSolid(x + p.x * 8.0f, y + p.y * 8.0f, 0.3f, 7.0f, 7.0f, PIECE_COLORS[kind]);
+    for (int slot = 0; slot < 4; ++slot) {
+        const Point& p = SHAPES[kind][0][slot];
+        const int encoded = kind * 16 + slot;
+        drawFragment(encoded, x + p.x * 7.0f, y + p.y * 7.0f, 7.0f, 0.82f);
     }
 }
 
-void renderTop(const Game& game, C3D_RenderTarget* target) {
-    const u32 bg = color(11, 11, 18);
-    const u32 boardBg = color(18, 20, 30);
-    const u32 grid = color(42, 44, 58);
-    const u32 text = color(235, 235, 245);
-    const u32 accent = color(178, 108, 255);
+std::string phaseBackground(int lines) {
+    if (lines >= 200) return "bg_phase2";
+    if (lines >= 100) return "bg_phase1";
+    return "bg_phase0";
+}
 
-    C2D_TargetClear(target, bg);
+void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
+    const u32 text = color(245, 240, 250);
+    const u32 accent = color(209, 143, 255);
+    const u32 grid = color(105, 88, 120, 110);
+
+    C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
+    drawFullscreenAsset(phaseBackground(game.lines()));
+    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,75));
 
-    C2D_DrawRectSolid(BOARD_X - 2, BOARD_Y - 2, 0.1f, BOARD_W * CELL + 4, BOARD_H * CELL + 4, accent);
-    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.2f, BOARD_W * CELL, BOARD_H * CELL, boardBg);
+    drawPanel(5, 8, 132, 224, accent);
+    drawPanel(145, 15, 110, 210, accent);
+    drawPanel(265, 8, 130, 224, accent);
 
+    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL, color(8,8,15,195));
     for (int x = 1; x < BOARD_W; ++x)
-        C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.21f, 1, BOARD_H * CELL, grid);
+        C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.46f, 1, BOARD_H * CELL, grid);
     for (int y = 1; y < BOARD_H; ++y)
-        C2D_DrawRectSolid(BOARD_X, BOARD_Y + y * CELL, 0.21f, BOARD_W * CELL, 1, grid);
+        C2D_DrawRectSolid(BOARD_X, BOARD_Y + y * CELL, 0.46f, BOARD_W * CELL, 1, grid);
 
     const auto& board = game.board();
-    for (int y = 0; y < BOARD_H; ++y)
-        for (int x = 0; x < BOARD_W; ++x)
-            if (board[y][x] >= 0)
-                drawCell(BOARD_X + x * CELL, BOARD_Y + y * CELL, PIECE_COLORS[board[y][x]]);
+    for (int y = 0; y < BOARD_H; ++y) {
+        for (int x = 0; x < BOARD_W; ++x) {
+            if (board[y][x] >= 0) drawFragment(board[y][x], BOARD_X + x * CELL, BOARD_Y + y * CELL);
+        }
+    }
 
     if (!game.gameOver()) {
         drawPieceAt(game.current(), game.ghostY(), true);
         drawPieceAt(game.current(), game.current().y, false);
     }
 
-    char buf[64];
-    drawText("W.I.T.C.H. TETRIS", 10, 8, 0.55f, accent);
-    std::snprintf(buf, sizeof(buf), "SCORE  %d", game.score());
-    drawText(buf, 10, 42, 0.48f, text);
-    std::snprintf(buf, sizeof(buf), "LINES  %d", game.lines());
-    drawText(buf, 10, 62, 0.48f, text);
-    std::snprintf(buf, sizeof(buf), "LEVEL  %d", game.lines() / 10 + 1);
-    drawText(buf, 10, 82, 0.48f, text);
+    char buf[96];
+    drawText("W.I.T.C.H.", 16, 17, 0.62f, accent);
+    drawText("TETRIS 3DS", 16, 39, 0.47f, text);
+    std::snprintf(buf, sizeof(buf), "SCORE %d", game.score());
+    drawText(buf, 16, 77, 0.39f, text);
+    std::snprintf(buf, sizeof(buf), "LINES %d", game.lines());
+    drawText(buf, 16, 96, 0.39f, text);
+    std::snprintf(buf, sizeof(buf), "PHASE %d", game.lines() >= 200 ? 3 : (game.lines() >= 100 ? 2 : 1));
+    drawText(buf, 16, 115, 0.39f, text);
 
-    drawText("HOLD", 10, 118, 0.44f, text);
-    if (game.holdKind() >= 0) drawMiniPiece(game.holdKind(), 22, 142);
+    drawText("HOLD", 16, 149, 0.38f, accent);
+    if (game.holdKind() >= 0) drawMiniPiece(game.holdKind(), 35, 174);
 
-    drawText("NEXT", 238, 28, 0.44f, text);
-    drawMiniPiece(game.nextKind(), 250, 55);
-    drawText("3DS native", 238, 118, 0.42f, accent);
-    drawText("phase 1", 238, 136, 0.42f, text);
+    drawText("NEXT", 278, 17, 0.40f, accent);
+    drawMiniPiece(game.nextKind(), 295, 45);
+    drawText(PIECE_CHARACTERS[game.nextKind()], 278, 87, 0.34f, text);
+    drawText("ORIGINAL", 278, 140, 0.32f, accent);
+    drawText("CHARACTER", 278, 156, 0.32f, accent);
+    drawText("FRAGMENTS", 278, 172, 0.32f, accent);
 
     if (game.paused()) {
-        C2D_DrawRectSolid(82, 84, 0.8f, 236, 72, color(0,0,0,210));
-        drawText("PAUSED", 151, 102, 0.8f, accent);
-        drawText("SELECT to resume", 118, 132, 0.45f, text);
+        drawPanel(95, 78, 210, 82, accent);
+        drawText("PAUSED", 145, 95, 0.68f, accent);
+        drawText("SELECT: resume", 126, 127, 0.40f, text);
     } else if (game.gameOver()) {
-        C2D_DrawRectSolid(70, 76, 0.8f, 260, 92, color(0,0,0,220));
-        drawText("GAME OVER", 123, 94, 0.8f, color(220,80,95));
-        drawText("A: restart", 146, 128, 0.48f, text);
-        drawText("START: exit", 141, 147, 0.42f, text);
+        drawPanel(80, 72, 240, 98, color(225,75,95));
+        drawText("GAME OVER", 120, 91, 0.67f, color(245,100,115));
+        drawText("A: restart", 145, 124, 0.43f, text);
+        drawText("START: menu", 134, 145, 0.36f, text);
     }
 }
 
-void renderBottom(const Game& game, C3D_RenderTarget* target) {
-    const u32 bg = color(16, 14, 24);
-    const u32 text = color(230, 226, 240);
-    const u32 accent = color(178, 108, 255);
-    C2D_TargetClear(target, bg);
+void renderTetrisBottom(const Game& game, C3D_RenderTarget* target) {
+    C2D_TargetClear(target, color(12, 9, 20));
     C2D_SceneBegin(target);
+    const u32 text = color(235,230,245);
+    const u32 accent = color(205,140,255);
 
-    drawText("W.I.T.C.H. Tetris / Nintendo 3DS", 12, 12, 0.46f, accent);
-    drawText("D-Pad L/R : move", 12, 50, 0.42f, text);
-    drawText("D-Pad Down: soft drop", 12, 72, 0.42f, text);
-    drawText("D-Pad Up/Y: hard drop", 12, 94, 0.42f, text);
-    drawText("A/B       : rotate CW/CCW", 12, 116, 0.42f, text);
-    drawText("X         : HOLD", 12, 138, 0.42f, text);
-    drawText("SELECT    : pause", 12, 160, 0.42f, text);
-    drawText("START     : exit to Homebrew Menu", 12, 182, 0.42f, text);
+    drawText("W.I.T.C.H. TETRIS — ORIGINAL ART MODE", 10, 12, 0.40f, accent);
+    drawText("← → move      ↓ soft drop", 12, 54, 0.42f, text);
+    drawText("↑ / Y hard drop", 12, 78, 0.42f, text);
+    drawText("A rotate CW    B rotate CCW", 12, 102, 0.42f, text);
+    drawText("X HOLD         SELECT pause", 12, 126, 0.42f, text);
+    drawText("START — return to main menu", 12, 150, 0.42f, text);
 
-    char buf[80];
-    std::snprintf(buf, sizeof(buf), "Current: %s   Next: %s", PIECE_NAMES[game.current().kind], PIECE_NAMES[game.nextKind()]);
-    drawText(buf, 12, 214, 0.38f, game.gameOver() ? color(220,80,95) : text);
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "NOW: %s / %s", PIECE_NAMES[game.current().kind], PIECE_CHARACTERS[game.current().kind]);
+    drawText(buf, 12, 190, 0.42f, game.gameOver() ? color(230,80,95) : text);
+    drawText("100 / 200 lines trigger story scenes.", 12, 215, 0.34f, accent);
 }
 
-void handleHorizontalRepeat(Game& game, u32 down, u32 held, int& repeatDir, int& repeatTimer) {
-    int dir = 0;
-    if (held & KEY_LEFT) dir = -1;
-    else if (held & KEY_RIGHT) dir = 1;
+enum class Mode {
+    Intro,
+    Menu,
+    Tetris,
+    CutsceneMenu,
+    Cutscene,
+    MiniMenu,
+    MiniGame,
+    PhobosRoom
+};
 
-    if ((down & KEY_LEFT) || (down & KEY_RIGHT)) {
-        repeatDir = dir;
-        repeatTimer = 12;
-        if (dir) game.move(dir, 0);
-        return;
+enum class CutsceneKind {
+    Intro,
+    Lines100,
+    Lines200,
+    Ending
+};
+
+struct CutsceneState {
+    CutsceneKind kind = CutsceneKind::Lines100;
+    int frame = 0;
+    Mode returnMode = Mode::CutsceneMenu;
+};
+
+const char* MENU_ITEMS[] = {
+    "NEW GAME",
+    "CUTSCENES",
+    "MINI-GAMES",
+    "PHOBOS ROOM",
+    "EXIT"
+};
+constexpr int MENU_COUNT = sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]);
+
+const char* CUTSCENE_ITEMS[] = {
+    "INTRO — PHOBOS CURSE",
+    "100 LINES — RESISTANCE",
+    "200 LINES — COLLAPSE",
+    "ENDING — W.I.T.C.H."
+};
+constexpr int CUTSCENE_COUNT = sizeof(CUTSCENE_ITEMS) / sizeof(CUTSCENE_ITEMS[0]);
+
+void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected) {
+    const u32 accent = color(211,143,255);
+    const u32 text = color(245,240,250);
+
+    C2D_TargetClear(top, color(8,7,14));
+    C2D_SceneBegin(top);
+    drawFullscreenAsset("bg_menu");
+    C2D_DrawRectSolid(0, 0, 0.2f, 400, 240, color(0,0,0,75));
+    if (g_assets.has("phobos_menu_body"))
+        drawAssetFit("phobos_menu_body", 228, 20, 165, 212, 0.32f, false, 0.92f);
+    drawPanel(13, 12, 220, 215, accent);
+    drawText("W.I.T.C.H.", 28, 26, 0.72f, accent);
+    drawText("TETRIS", 28, 52, 0.62f, text);
+    drawText("NINTENDO 3DS", 28, 75, 0.34f, accent);
+
+    for (int i = 0; i < MENU_COUNT; ++i) {
+        const float y = 105 + i * 22;
+        if (i == selected) C2D_DrawRectSolid(24, y-3, 0.8f, 190, 19, color(105,53,135,220));
+        drawText(std::string(i == selected ? "> " : "  ") + MENU_ITEMS[i], 29, y, 0.40f, text);
     }
 
-    if (dir == 0) {
-        repeatDir = 0;
-        repeatTimer = 0;
-        return;
-    }
-    if (dir != repeatDir) {
-        repeatDir = dir;
-        repeatTimer = 12;
-        game.move(dir, 0);
-        return;
-    }
-    if (repeatTimer > 0) {
-        --repeatTimer;
+    C2D_TargetClear(bottom, color(13,10,22));
+    C2D_SceneBegin(bottom);
+    drawText("PHASE 2 CONTENT BUILD", 12, 14, 0.52f, accent);
+    drawText("Original backgrounds + character blocks", 12, 55, 0.38f, text);
+    drawText("Original MP3 music streamed through ndsp", 12, 78, 0.38f, text);
+    drawText("Intro / 100 / 200 / ending previews", 12, 101, 0.38f, text);
+    drawText("4 playable original mini-game ports", 12, 124, 0.38f, text);
+    drawText("Phobos room visual test", 12, 147, 0.38f, text);
+    drawText("D-Pad: select    A: open    START: exit", 12, 207, 0.36f, accent);
+}
+
+void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int scene) {
+    const u32 accent = color(215,145,255);
+    const u32 text = color(245,240,250);
+
+    C2D_TargetClear(top, color(3,3,8));
+    C2D_SceneBegin(top);
+
+    if (scene == 0) {
+        drawFullscreenAsset("intro_castle");
+        C2D_DrawRectSolid(0, 0, 0.3f, 400, 240, color(0,0,0,50));
+        drawPanel(36, 162, 328, 58, accent);
+        drawText("MERIDIAN. THE PALACE OF PHOBOS.", 55, 178, 0.42f, text);
     } else {
-        game.move(dir, 0);
-        repeatTimer = 3;
+        drawFullscreenAsset("intro_throne");
+        C2D_DrawRectSolid(0, 0, 0.25f, 400, 240, color(0,0,0,35));
+
+        if (scene == 1) {
+            drawAssetFit("intro_will", 30, 55, 135, 165, 0.45f);
+            drawAssetFit("intro_phobos", 250, 28, 140, 195, 0.44f);
+            drawPanel(55, 174, 290, 50, accent);
+            drawText("WILL: IT'S OVER, PHOBOS!", 77, 190, 0.41f, text);
+        } else if (scene == 2) {
+            const char* keys[] = {"intro_will","intro_irma","intro_taranee","intro_cornelia","intro_haylin","intro_caleb","intro_blunk"};
+            for (int i = 0; i < 7; ++i) {
+                const float x = 4.0f + i * 55.0f;
+                drawAssetFit(keys[i], x, 85 + (i%2)*12, 62, 130, 0.43f);
+            }
+            drawAssetFit("intro_phobos", 150, 18, 100, 125, 0.42f);
+            drawPanel(40, 182, 320, 43, accent);
+            drawText("THE GUARDIANS REFUSE TO SURRENDER.", 62, 196, 0.37f, text);
+        } else if (scene == 3) {
+            drawAssetFit("intro_will_final", 130, 28, 140, 190, 0.48f);
+            drawPanel(55, 176, 290, 48, accent);
+            drawText("THE CURSE CHANGES THEIR FORMS...", 73, 191, 0.38f, text);
+        } else if (scene == 4) {
+            drawAssetFit("intro_phobos_cast", 93, 18, 214, 205, 0.47f);
+            drawPanel(65, 180, 270, 43, accent);
+            drawText("PHOBOS: NOW WE BEGIN.", 103, 194, 0.42f, text);
+        } else {
+            drawFullscreenAsset("bg_phase0");
+            C2D_DrawRectSolid(0,0,0.3f,400,240,color(0,0,0,105));
+            drawPanel(52, 72, 296, 100, accent);
+            drawText("W.I.T.C.H. TETRIS", 92, 93, 0.70f, accent);
+            drawText("THE GAME IS YOUR PRISON.", 93, 132, 0.41f, text);
+        }
     }
+
+    C2D_TargetClear(bottom, color(12,9,20));
+    C2D_SceneBegin(bottom);
+    drawText("ORIGINAL INTRO — 3DS ADAPTATION", 10, 14, 0.47f, accent);
+    drawText("Artwork comes from assets/cutscenes/intro.", 10, 58, 0.38f, text);
+    drawText("A — next scene", 10, 126, 0.44f, text);
+    drawText("B / START — skip to menu", 10, 154, 0.44f, text);
+    char buf[40];
+    std::snprintf(buf, sizeof(buf), "SCENE %d / 6", scene + 1);
+    drawText(buf, 10, 211, 0.38f, accent);
+}
+
+void renderCutsceneMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected) {
+    const u32 accent = color(210,140,255);
+    const u32 text = color(240,235,248);
+    C2D_TargetClear(top, color(7,6,13));
+    C2D_SceneBegin(top);
+    drawFullscreenAsset("bg_phase1");
+    C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,115));
+    drawPanel(30, 22, 340, 196, accent);
+    drawText("CUTSCENE ARCHIVE", 92, 38, 0.57f, accent);
+    for (int i=0;i<CUTSCENE_COUNT;++i) {
+        const float y=82+i*30;
+        if(i==selected) C2D_DrawRectSolid(48,y-4,0.82f,305,23,color(96,50,126,220));
+        drawText(std::string(i==selected?"> ":"  ")+CUTSCENE_ITEMS[i],55,y,0.39f,text);
+    }
+
+    C2D_TargetClear(bottom, color(12,9,20));
+    C2D_SceneBegin(bottom);
+    drawText("A — play selected scene", 12, 48, 0.44f, text);
+    drawText("B / START — back", 12, 79, 0.44f, text);
+    drawText("Scenes also trigger at 100 and 200 lines.", 12, 137, 0.38f, accent);
+}
+
+void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const CutsceneState& cs) {
+    const u32 accent=color(211,143,255), text=color(245,240,250);
+    C2D_TargetClear(top,color(4,3,8));
+    C2D_SceneBegin(top);
+
+    std::string title;
+    int total=1;
+
+    if(cs.kind==CutsceneKind::Lines100) {
+        title="100 LINES — RESISTANCE";
+        const char* frames[]={"l100_phobos","l100_will","l100_cornelia","l100_irma","l100_taranee","l100_haylin","l100_caleb","l100_heart"};
+        total=8;
+        drawFullscreenAsset("bg_phase1");
+        C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,75));
+        drawAssetFit(frames[cs.frame%total],70,18,260,205,0.5f);
+    } else if(cs.kind==CutsceneKind::Lines200) {
+        title="200 LINES — PHOBOS COLLAPSES";
+        total=6;
+        drawFullscreenAsset("bg_phase2");
+        C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,75));
+        char key[32];
+        std::snprintf(key,sizeof(key),"l200_collapse_%d",cs.frame%6);
+        drawAssetFit(key,40,10,320,220,0.5f);
+    } else {
+        title="ENDING — W.I.T.C.H.";
+        total=2;
+        drawFullscreenAsset(cs.frame%2==0?"ending_phobos":"ending_witch",0.12f);
+        C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,20));
+    }
+    drawPanel(8,5,384,29,accent);
+    drawText(title,20,12,0.38f,text);
+
+    C2D_TargetClear(bottom,color(12,9,20));
+    C2D_SceneBegin(bottom);
+    drawText(title,12,16,0.47f,accent);
+    char buf[64];
+    std::snprintf(buf,sizeof(buf),"FRAME %d / %d",cs.frame+1,total);
+    drawText(buf,12,62,0.40f,text);
+    drawText("A — next",12,124,0.44f,text);
+    drawText("B / START — leave scene",12,154,0.44f,text);
+    drawText("Original artwork, scaled for 400x240.",12,210,0.34f,accent);
+}
+
+enum class MiniType {
+    Snake = 0,
+    Treasure,
+    StoneCovers,
+    DarkWater,
+    Count
+};
+
+const char* MINI_NAMES[] = {
+    "SNAKE — BLUNK/CEDRIC/PHOBOS",
+    "BLUNK TREASURE ESCAPE",
+    "CORNELIA STONE COVERS",
+    "IRMA DARK WATER PANIC"
+};
+
+struct Drop {
+    int lane = 0;
+    float y = 0;
+    bool active = false;
+};
+
+class MiniGame {
+public:
+    MiniGame() : rng_(static_cast<unsigned int>(osGetTime() ^ 0x51A7u)) { reset(MiniType::Snake); }
+
+    void reset(MiniType type) {
+        type_=type; score_=0; lives_=(type==MiniType::Snake?1:3); over_=false; tick_=0;
+        dir_={1,0}; nextDir_={1,0};
+        snake_.clear(); snake_.push_back({5,7}); snake_.push_back({4,7}); snake_.push_back({3,7});
+        food_={14,7}; snakeVariant_=static_cast<int>(rng_()%4==0?2:(rng_()%3==0?1:0));
+
+        treasurePos_=0; treasureCedric_=6.0f; treasureCarry_=false; treasureSafe_=60;
+
+        cover_=1; dangerLane_=static_cast<int>(rng_()%4); dangerTimer_=100;
+
+        waterLane_=2; waterStored_=0; waterDrop_={static_cast<int>(rng_()%5), 15.0f, true};
+    }
+
+    MiniType type() const { return type_; }
+    int score() const { return score_; }
+    int lives() const { return lives_; }
+    bool over() const { return over_; }
+
+    void handle(u32 down) {
+        if (over_) {
+            if (down & KEY_A) reset(type_);
+            return;
+        }
+
+        if (type_ == MiniType::Snake) {
+            Point d=nextDir_;
+            if(down&KEY_LEFT) d={-1,0};
+            else if(down&KEY_RIGHT) d={1,0};
+            else if(down&KEY_UP) d={0,-1};
+            else if(down&KEY_DOWN) d={0,1};
+            if(!(d.x==-dir_.x && d.y==-dir_.y)) nextDir_=d;
+        } else if (type_ == MiniType::Treasure) {
+            if(down&KEY_LEFT) treasurePos_=std::max(0,treasurePos_-1);
+            if(down&KEY_RIGHT) treasurePos_=std::min(6,treasurePos_+1);
+            if(treasurePos_==6) treasureCarry_=true;
+            if(treasureCarry_ && treasurePos_==0) {
+                score_+=10; treasureCarry_=false; treasureCedric_=6.0f; treasureSafe_=45;
+            }
+        } else if (type_ == MiniType::StoneCovers) {
+            if(down&KEY_LEFT) cover_=std::max(0,cover_-1);
+            if(down&KEY_RIGHT) cover_=std::min(3,cover_+1);
+        } else if (type_ == MiniType::DarkWater) {
+            if(down&KEY_LEFT) waterLane_=std::max(0,waterLane_-1);
+            if(down&KEY_RIGHT) waterLane_=std::min(4,waterLane_+1);
+            if((down&(KEY_A|KEY_X)) && waterStored_==3) {
+                score_+=15; waterStored_=0;
+            }
+        }
+    }
+
+    void update() {
+        if(over_) return;
+        ++tick_;
+
+        if(type_==MiniType::Snake) {
+            const int speed=std::max(4,10-score_/25);
+            if(tick_%speed==0) {
+                dir_=nextDir_;
+                Point h=snake_.front();
+                Point n={(h.x+dir_.x+20)%20,(h.y+dir_.y+14)%14};
+                if(std::find_if(snake_.begin(),snake_.end(),[&](const Point& p){return p.x==n.x&&p.y==n.y;})!=snake_.end()) {
+                    lives_=0; over_=true; return;
+                }
+                snake_.insert(snake_.begin(),n);
+                if(n.x==food_.x && n.y==food_.y) {
+                    score_+=5;
+                    food_={static_cast<int>(rng_()%20),static_cast<int>(rng_()%14)};
+                } else snake_.pop_back();
+            }
+        } else if(type_==MiniType::Treasure) {
+            if(treasureSafe_>0) --treasureSafe_;
+            const int pace=std::max(12,34-score_/5);
+            if(treasureSafe_==0 && tick_%pace==0) {
+                if(treasureCedric_>treasurePos_) treasureCedric_-=1.0f;
+                else if(treasureCedric_<treasurePos_) treasureCedric_+=1.0f;
+                if(static_cast<int>(treasureCedric_+0.5f)==treasurePos_) {
+                    --lives_; treasureCarry_=false; treasurePos_=0; treasureCedric_=6.0f; treasureSafe_=75;
+                    if(lives_<=0) over_=true;
+                }
+            }
+        } else if(type_==MiniType::StoneCovers) {
+            --dangerTimer_;
+            if(dangerTimer_<=0) {
+                if(cover_==dangerLane_) score_+=2;
+                else if(--lives_<=0) over_=true;
+                dangerLane_=static_cast<int>(rng_()%4);
+                dangerTimer_=std::max(28,95-score_/3);
+            }
+        } else if(type_==MiniType::DarkWater) {
+            const int level=tick_/(18*FPS);
+            const float speed=0.75f+level*0.16f;
+            if(!waterDrop_.active) {
+                waterDrop_={static_cast<int>(rng_()%5),18.0f,true};
+            }
+            waterDrop_.y+=speed;
+            if(waterDrop_.y>=190.0f) {
+                if(waterDrop_.lane==waterLane_ && waterStored_<3) ++waterStored_;
+                else if(--lives_<=0) over_=true;
+                waterDrop_.active=false;
+            }
+        }
+    }
+
+    void renderTop(C3D_RenderTarget* target) const {
+        const u32 accent=color(210,140,255), text=color(245,240,250);
+        C2D_TargetClear(target,color(10,7,18));
+        C2D_SceneBegin(target);
+        drawFullscreenAsset("bg_phase1");
+        C2D_DrawRectSolid(0,0,0.2f,400,240,color(0,0,0,125));
+        drawPanel(18,18,364,204,accent);
+
+        drawText(MINI_NAMES[static_cast<int>(type_)],30,27,0.40f,accent);
+
+        char hud[80];
+        std::snprintf(hud,sizeof(hud),"SCORE %d    LIFE %d",score_,lives_);
+        drawText(hud,270,28,0.31f,text);
+
+        if(type_==MiniType::Snake) renderSnake();
+        else if(type_==MiniType::Treasure) renderTreasure();
+        else if(type_==MiniType::StoneCovers) renderStone();
+        else renderWater();
+
+        if(over_) {
+            drawPanel(82,82,236,83,color(230,80,100));
+            drawText("GAME OVER",125,100,0.63f,color(245,100,120));
+            drawText("A — retry",154,135,0.40f,text);
+        }
+    }
+
+    void renderBottom(C3D_RenderTarget* target) const {
+        const u32 accent=color(210,140,255), text=color(240,235,248);
+        C2D_TargetClear(target,color(12,9,20));
+        C2D_SceneBegin(target);
+        drawText("MINI-GAME PORT",12,14,0.50f,accent);
+        if(type_==MiniType::Snake) {
+            drawText("D-Pad — direction",12,62,0.44f,text);
+            drawText("Eat the target. Do not hit yourself.",12,94,0.37f,text);
+        } else if(type_==MiniType::Treasure) {
+            drawText("← → — fixed positions",12,62,0.44f,text);
+            drawText("Take treasure at right; bank it at left.",12,94,0.37f,text);
+        } else if(type_==MiniType::StoneCovers) {
+            drawText("← → — move Cornelia's stone cover",12,62,0.40f,text);
+            drawText("Be under the flashing danger lane.",12,94,0.37f,text);
+        } else {
+            drawText("← → — move Irma's vessel",12,62,0.42f,text);
+            drawText("A / X — dump when 3 drops are stored",12,94,0.37f,text);
+        }
+        drawText("START / B — back to mini-game menu",12,185,0.37f,accent);
+        drawText("A — retry after Game Over",12,211,0.34f,text);
+    }
+
+private:
+    MiniType type_=MiniType::Snake;
+    int score_=0,lives_=1,tick_=0;
+    bool over_=false;
+    std::mt19937 rng_;
+
+    Point dir_{1,0},nextDir_{1,0};
+    std::vector<Point> snake_;
+    Point food_{14,7};
+    int snakeVariant_=0;
+
+    int treasurePos_=0;
+    float treasureCedric_=6.0f;
+    bool treasureCarry_=false;
+    int treasureSafe_=0;
+
+    int cover_=1,dangerLane_=0,dangerTimer_=100;
+
+    int waterLane_=2,waterStored_=0;
+    Drop waterDrop_;
+
+    void drawIcon(const std::string& key,float cx,float cy,float size) const {
+        if(g_assets.has(key)) drawAssetFit(key,cx-size/2,cy-size/2,size,size,0.64f);
+        else C2D_DrawCircleSolid(cx,cy,0.64f,size*0.35f,color(210,140,255));
+    }
+
+    void renderSnake() const {
+        const float ox=42,oy=61,cw=15,ch=10;
+        C2D_DrawRectSolid(ox,oy,0.42f,300,140,color(8,8,16,220));
+        for(size_t i=0;i<snake_.size();++i) {
+            const Point& p=snake_[i];
+            const float x=ox+p.x*cw,y=oy+p.y*ch;
+            if(i==0) {
+                const char* key=snakeVariant_==0?"mg_blunk":(snakeVariant_==1?"mg_cedric":"mg_phobos");
+                drawIcon(key,x+cw/2,y+ch/2,18);
+            } else C2D_DrawRectSolid(x+2,y+2,0.6f,cw-4,ch-4,
+                snakeVariant_==0?color(224,183,54):(snakeVariant_==1?color(75,170,90):color(80,50,110)));
+        }
+        const float fx=ox+food_.x*cw+cw/2,fy=oy+food_.y*ch+ch/2;
+        if(snakeVariant_==2) drawIcon("mg_heart",fx,fy,16);
+        else if(snakeVariant_==1) drawIcon("mg_phobos",fx,fy,16);
+        else C2D_DrawCircleSolid(fx,fy,0.65f,5,color(250,210,70));
+    }
+
+    void renderTreasure() const {
+        const float y=136;
+        for(int i=0;i<7;++i) {
+            const float x=55+i*48;
+            C2D_DrawCircleSolid(x,y,0.5f,8,i==treasurePos_?color(220,145,255):color(95,70,115));
+        }
+        drawIcon("mg_blunk",55+treasurePos_*48,y-25,44);
+        drawIcon("mg_cedric",55+treasureCedric_*48,y+28,48);
+        C2D_DrawCircleSolid(55+6*48,83,0.6f,10,color(250,205,60));
+        drawText(treasureCarry_?"TREASURE: CARRIED":"TREASURE: VAULT",45,188,0.38f,color(245,240,250));
+    }
+
+    void renderStone() const {
+        const char* labels[]={"WILL","IRMA","TARANEE","HAY LIN"};
+        const char* keys[]={"mg_will","mg_irma","",""};
+        for(int i=0;i<4;++i) {
+            const float x=68+i*88;
+            C2D_DrawRectSolid(x-28,91,0.46f,56,73,color(35,25,47,230));
+            if(keys[i][0]) drawIcon(keys[i],x,116,48);
+            else drawText(labels[i],x-25,108,0.28f,color(240,235,248));
+            if(i==cover_) C2D_DrawRectSolid(x-30,157,0.64f,60,12,color(145,110,82));
+            if(i==dangerLane_) {
+                const float pulse=static_cast<float>(std::max(0,dangerTimer_))/100.0f;
+                C2D_DrawTriangle(x,68,x-9,84,x+9,84,color(245,80,90),color(245,80,90),color(245,80,90),0.7f);
+                (void)pulse;
+            }
+        }
+        drawText("CORNELIA'S STONE SHIELD",102,187,0.36f,color(210,140,255));
+    }
+
+    void renderWater() const {
+        const float ox=70,spacing=65,bottom=190;
+        for(int i=0;i<5;++i) {
+            const float x=ox+i*spacing;
+            C2D_DrawLine(x,67,color(80,90,130),x,bottom,color(80,90,130),1.0f,0.45f);
+        }
+        if(waterDrop_.active) {
+            const float x=ox+waterDrop_.lane*spacing;
+            C2D_DrawCircleSolid(x,waterDrop_.y,0.65f,7,color(80,50,130));
+        }
+        const float px=ox+waterLane_*spacing;
+        drawIcon("mg_irma",px,bottom,42);
+        C2D_DrawRectSolid(px-18,bottom+19,0.68f,36,10,color(70,145,205));
+        char buf[48];
+        std::snprintf(buf,sizeof(buf),"VESSEL %d / 3",waterStored_);
+        drawText(buf,150,198,0.36f,color(245,240,250));
+    }
+};
+
+void renderMiniMenu(C3D_RenderTarget* top,C3D_RenderTarget* bottom,int selected) {
+    const u32 accent=color(210,140,255),text=color(240,235,248);
+    C2D_TargetClear(top,color(8,6,14));
+    C2D_SceneBegin(top);
+    drawFullscreenAsset("bg_phase1");
+    C2D_DrawRectSolid(0,0,0.2f,400,240,color(0,0,0,120));
+    drawPanel(22,18,356,206,accent);
+    drawText("MINI-GAMES — PHASE 2",78,34,0.53f,accent);
+    for(int i=0;i<static_cast<int>(MiniType::Count);++i) {
+        const float y=83+i*31;
+        if(i==selected) C2D_DrawRectSolid(40,y-5,0.8f,320,24,color(100,52,130,220));
+        drawText(std::string(i==selected?"> ":"  ")+MINI_NAMES[i],47,y,0.36f,text);
+    }
+    drawText("More original mini-games follow after hardware profiling.",42,207,0.28f,accent);
+
+    C2D_TargetClear(bottom,color(12,9,20));
+    C2D_SceneBegin(bottom);
+    drawText("FOUR PLAYABLE PORTS IN THIS BUILD",12,18,0.45f,accent);
+    drawText("Snake keeps the Blunk/Cedric/Phobos variants.",12,61,0.35f,text);
+    drawText("Treasure Escape uses fixed Game & Watch positions.",12,86,0.35f,text);
+    drawText("Stone Covers preserves the four-lane shield rule.",12,111,0.35f,text);
+    drawText("Dark Water uses 5 lanes + 3-drop vessel.",12,136,0.35f,text);
+    drawText("A — start     B / START — menu",12,207,0.38f,accent);
+}
+
+void renderPhobosRoom(C3D_RenderTarget* top,C3D_RenderTarget* bottom,int state) {
+    const u32 accent=color(210,140,255),text=color(245,240,250);
+    C2D_TargetClear(top,color(5,3,8));
+    C2D_SceneBegin(top);
+    drawFullscreenAsset("phobos_room_bg");
+    char key[32];
+    std::snprintf(key,sizeof(key),"phobos_room_state%d",state%6);
+    drawAssetFit(key,103,25,194,190,0.52f);
+    drawAssetFit("phobos_room_table",0,142,400,98,0.70f,true);
+    drawPanel(15,12,190,42,accent);
+    drawText("PHOBOS ROOM",28,24,0.47f,text);
+
+    C2D_TargetClear(bottom,color(11,7,18));
+    C2D_SceneBegin(bottom);
+    drawText("PHOBOS ROOM — NATIVE 3DS TEST",12,15,0.45f,accent);
+    drawText("Original layered room artwork is active.",12,58,0.37f,text);
+    drawText("A / X — change seated state",12,103,0.42f,text);
+    drawText("B / START — return to menu",12,132,0.42f,text);
+    char buf[48]; std::snprintf(buf,sizeof(buf),"POSE %d / 6",state+1);
+    drawText(buf,12,201,0.38f,accent);
+}
+
+void handleHorizontalRepeat(Game& game,u32 down,u32 held,int& repeatDir,int& repeatTimer) {
+    int dir=0;
+    if(held&KEY_LEFT) dir=-1;
+    else if(held&KEY_RIGHT) dir=1;
+    if((down&KEY_LEFT)||(down&KEY_RIGHT)) {
+        repeatDir=dir; repeatTimer=12; if(dir) game.move(dir,0); return;
+    }
+    if(dir==0) {repeatDir=0;repeatTimer=0;return;}
+    if(dir!=repeatDir) {repeatDir=dir;repeatTimer=12;game.move(dir,0);return;}
+    if(repeatTimer>0) --repeatTimer;
+    else {game.move(dir,0);repeatTimer=3;}
+}
+
+std::string musicForMini(MiniType type) {
+    switch(type) {
+        case MiniType::Snake: return "romfs:/audio/minigame_snake.mp3";
+        case MiniType::Treasure: return "romfs:/audio/minigame_treasure.mp3";
+        case MiniType::StoneCovers: return "romfs:/audio/minigame_stone.mp3";
+        case MiniType::DarkWater: return "romfs:/audio/minigame_water.mp3";
+        default: return "romfs:/audio/minigame_arcade.mp3";
+    }
+}
+
+std::string musicForTetris(int lines) {
+    if(lines>=200) return "romfs:/audio/phase2_guardians.mp3";
+    if(lines>=100) {
+        const int which=(lines/10)%3;
+        return std::string("romfs:/audio/phase1_")+char('1'+which)+".mp3";
+    }
+    return "romfs:/audio/phase0.mp3";
 }
 
 } // namespace
 
 int main() {
     gfxInitDefault();
+    romfsInit();
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
@@ -459,43 +1104,165 @@ int main() {
     initColors();
     initShapes();
 
-    C3D_RenderTarget* top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
-    C3D_RenderTarget* bottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-    g_textBuf = C2D_TextBufNew(4096);
+    C3D_RenderTarget* top=C2D_CreateScreenTarget(GFX_TOP,GFX_LEFT);
+    C3D_RenderTarget* bottom=C2D_CreateScreenTarget(GFX_BOTTOM,GFX_LEFT);
+    g_textBuf=C2D_TextBufNew(8192);
+    g_assets.loadCore();
+
+    Mp3Player audio;
+    audio.init();
 
     Game game;
-    int repeatDir = 0;
-    int repeatTimer = 0;
+    MiniGame mini;
+    Mode mode=Mode::Intro;
+    CutsceneState cutscene;
+    int introScene=0;
+    int menuIndex=0;
+    int cutsceneIndex=0;
+    int miniIndex=0;
+    int phobosState=0;
+    int repeatDir=0,repeatTimer=0;
+    bool shown100=false,shown200=false;
+    bool quit=false;
+    std::string wantedMusic;
 
-    while (aptMainLoop()) {
+    auto setMusic=[&](const std::string& path,bool loop=true){
+        if(audio.ready() && audio.path()!=path) audio.play(path,loop);
+    };
+    auto goMenu=[&](){
+        mode=Mode::Menu;
+        menuIndex=0;
+        setMusic((osGetTime()/1000)%2?"romfs:/audio/menu_1.mp3":"romfs:/audio/menu_2.mp3",true);
+    };
+    auto startCutscene=[&](CutsceneKind kind,Mode ret){
+        cutscene.kind=kind;cutscene.frame=0;cutscene.returnMode=ret;mode=Mode::Cutscene;
+        if(kind==CutsceneKind::Ending) setMusic("romfs:/audio/phase2_guardians.mp3",false);
+    };
+
+    setMusic("romfs:/audio/intro.mp3",false);
+
+    while(aptMainLoop()&&!quit) {
         hidScanInput();
-        const u32 down = hidKeysDown();
-        const u32 held = hidKeysHeld();
+        const u32 down=hidKeysDown();
+        const u32 held=hidKeysHeld();
 
-        if (down & KEY_START) break;
-        if (down & KEY_SELECT) game.togglePause();
+        audio.update();
 
-        if (game.gameOver()) {
-            if (down & KEY_A) game.reset();
-        } else if (!game.paused()) {
-            handleHorizontalRepeat(game, down, held, repeatDir, repeatTimer);
-            if (down & KEY_A) game.rotate(+1);
-            if (down & KEY_B) game.rotate(-1);
-            if (down & KEY_X) game.hold();
-            if ((down & KEY_UP) || (down & KEY_Y)) game.hardDrop();
-            game.tick((held & KEY_DOWN) != 0);
+        if(mode==Mode::Intro) {
+            if(down&(KEY_B|KEY_START)) {
+                goMenu();
+            } else if(down&KEY_A) {
+                ++introScene;
+                if(introScene>=6) goMenu();
+            }
+            setMusic("romfs:/audio/intro.mp3",false);
+        } else if(mode==Mode::Menu) {
+            if(down&KEY_START) quit=true;
+            if(down&KEY_UP) menuIndex=(menuIndex+MENU_COUNT-1)%MENU_COUNT;
+            if(down&KEY_DOWN) menuIndex=(menuIndex+1)%MENU_COUNT;
+            if(down&KEY_A) {
+                if(menuIndex==0) {
+                    game.reset();shown100=false;shown200=false;mode=Mode::Tetris;
+                    setMusic(musicForTetris(0),true);
+                } else if(menuIndex==1) {
+                    mode=Mode::CutsceneMenu;cutsceneIndex=0;
+                } else if(menuIndex==2) {
+                    mode=Mode::MiniMenu;miniIndex=0;
+                } else if(menuIndex==3) {
+                    mode=Mode::PhobosRoom;phobosState=0;
+                    setMusic("romfs:/audio/phobos_room.mp3",true);
+                } else quit=true;
+            }
+        } else if(mode==Mode::Tetris) {
+            if(down&KEY_START) {
+                goMenu();
+            } else {
+                if(down&KEY_SELECT) game.togglePause();
+                if(game.gameOver()) {
+                    if(down&KEY_A) {game.reset();shown100=false;shown200=false;setMusic(musicForTetris(0),true);}
+                } else if(!game.paused()) {
+                    handleHorizontalRepeat(game,down,held,repeatDir,repeatTimer);
+                    if(down&KEY_A) game.rotate(+1);
+                    if(down&KEY_B) game.rotate(-1);
+                    if(down&KEY_X) game.hold();
+                    if((down&KEY_UP)||(down&KEY_Y)) game.hardDrop();
+                    game.tick((held&KEY_DOWN)!=0);
+                }
+                setMusic(musicForTetris(game.lines()),true);
+                if(!shown100&&game.lines()>=100) {
+                    shown100=true;startCutscene(CutsceneKind::Lines100,Mode::Tetris);
+                } else if(!shown200&&game.lines()>=200) {
+                    shown200=true;startCutscene(CutsceneKind::Lines200,Mode::Tetris);
+                }
+            }
+        } else if(mode==Mode::CutsceneMenu) {
+            if(down&(KEY_B|KEY_START)) goMenu();
+            if(down&KEY_UP) cutsceneIndex=(cutsceneIndex+CUTSCENE_COUNT-1)%CUTSCENE_COUNT;
+            if(down&KEY_DOWN) cutsceneIndex=(cutsceneIndex+1)%CUTSCENE_COUNT;
+            if(down&KEY_A) {
+                if(cutsceneIndex==0) {mode=Mode::Intro;introScene=0;setMusic("romfs:/audio/intro.mp3",false);}
+                else if(cutsceneIndex==1) startCutscene(CutsceneKind::Lines100,Mode::CutsceneMenu);
+                else if(cutsceneIndex==2) startCutscene(CutsceneKind::Lines200,Mode::CutsceneMenu);
+                else startCutscene(CutsceneKind::Ending,Mode::CutsceneMenu);
+            }
+        } else if(mode==Mode::Cutscene) {
+            int total=cutscene.kind==CutsceneKind::Lines100?8:(cutscene.kind==CutsceneKind::Lines200?6:2);
+            if(down&(KEY_B|KEY_START)) {
+                Mode ret=cutscene.returnMode;
+                mode=ret;
+                if(ret==Mode::Tetris) setMusic(musicForTetris(game.lines()),true);
+                else if(ret==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
+            } else if(down&KEY_A) {
+                ++cutscene.frame;
+                if(cutscene.frame>=total) {
+                    Mode ret=cutscene.returnMode;mode=ret;
+                    if(ret==Mode::Tetris) setMusic(musicForTetris(game.lines()),true);
+                    else setMusic("romfs:/audio/menu_1.mp3",true);
+                }
+            }
+        } else if(mode==Mode::MiniMenu) {
+            if(down&(KEY_B|KEY_START)) goMenu();
+            if(down&KEY_UP) miniIndex=(miniIndex+static_cast<int>(MiniType::Count)-1)%static_cast<int>(MiniType::Count);
+            if(down&KEY_DOWN) miniIndex=(miniIndex+1)%static_cast<int>(MiniType::Count);
+            if(down&KEY_A) {
+                mini.reset(static_cast<MiniType>(miniIndex));
+                mode=Mode::MiniGame;
+                setMusic(musicForMini(mini.type()),true);
+            }
+        } else if(mode==Mode::MiniGame) {
+            if(down&(KEY_B|KEY_START)) {
+                mode=Mode::MiniMenu;
+                setMusic("romfs:/audio/menu_1.mp3",true);
+            } else {
+                mini.handle(down);
+                mini.update();
+            }
+        } else if(mode==Mode::PhobosRoom) {
+            if(down&(KEY_B|KEY_START)) goMenu();
+            else if(down&(KEY_A|KEY_X)) phobosState=(phobosState+1)%6;
         }
 
         C2D_TextBufClear(g_textBuf);
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-        renderTop(game, top);
-        renderBottom(game, bottom);
+
+        if(mode==Mode::Intro) renderIntro(top,bottom,introScene);
+        else if(mode==Mode::Menu) renderMenu(top,bottom,menuIndex);
+        else if(mode==Mode::Tetris) {renderTetrisTop(game,top);renderTetrisBottom(game,bottom);}
+        else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(top,bottom,cutsceneIndex);
+        else if(mode==Mode::Cutscene) renderCutscene(top,bottom,cutscene);
+        else if(mode==Mode::MiniMenu) renderMiniMenu(top,bottom,miniIndex);
+        else if(mode==Mode::MiniGame) {mini.renderTop(top);mini.renderBottom(bottom);}
+        else renderPhobosRoom(top,bottom,phobosState);
+
         C3D_FrameEnd(0);
     }
 
+    audio.shutdown();
+    g_assets.unloadAll();
     C2D_TextBufDelete(g_textBuf);
     C2D_Fini();
     C3D_Fini();
+    romfsExit();
     gfxExit();
     return 0;
 }
