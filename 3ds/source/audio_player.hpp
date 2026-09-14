@@ -18,6 +18,8 @@ public:
     bool ready() const { return ready_; }
     bool playing() const { return playing_; }
     const std::string& path() const { return path_; }
+    const std::string& status() const { return status_; }
+    Result initResult() const { return initResult_; }
 
 private:
     static const int CHANNEL = 0;
@@ -36,5 +38,7 @@ private:
     ndspWaveBuf waveBuf_[NUM_BUFS];
     long sampleRate_;
     int channels_;
+    Result initResult_;
     std::string path_;
+    std::string status_;
 };
