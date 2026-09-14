@@ -798,14 +798,15 @@ void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
 
     drawPanel(7, 7, 172, 226, accent, 0.28f);
     drawText("CONTROLS", 16, 15, 0.39f, accent);
-    drawText("D-PAD  MOVE / DROP", 16, 43, 0.29f, text);
-    drawText("A / B  ROTATE", 16, 61, 0.29f, text);
-    drawText("X      HOLD", 16, 79, 0.29f, text);
-    drawText("Y / UP HARD DROP", 16, 97, 0.29f, text);
-    drawText("START / SELECT", 16, 115, 0.29f, text);
-    drawText("PAUSE / RESUME", 16, 133, 0.29f, text);
+    drawText("LEFT / RIGHT  MOVE", 16, 40, 0.27f, text);
+    drawText("DOWN   SOFT DROP", 16, 56, 0.27f, text);
+    drawText("UP / A / B  ROTATE", 16, 72, 0.27f, text);
+    drawText("Y      HARD DROP", 16, 88, 0.27f, text);
+    drawText("X      HOLD", 16, 104, 0.27f, text);
+    drawText("L / R  PREV / NEXT MUSIC", 16, 120, 0.24f, text);
+    drawText("START / SELECT  PAUSE", 16, 136, 0.25f, text);
 
-    drawText("AUDIO", 16, 157, 0.29f, accent);
+    drawText("AUDIO", 16, 158, 0.29f, accent);
     std::string status = audio.status();
     const bool audioError = status.find("FAIL") != std::string::npos;
     const u32 audioColor = audioError ? color(245,105,115) : text;
