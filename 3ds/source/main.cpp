@@ -2512,6 +2512,8 @@ int main() {
                     resetRunReactions();
                     maybeOpeningReaction();
                 } else if(menuIndex==1) {
+                    settingsPage=0;
+                    settingsIndex=0;
                     mode=Mode::Settings;
                 } else if(menuIndex==2) {
                     mode=Mode::CutsceneMenu;
@@ -2526,12 +2528,48 @@ int main() {
             }
 
         } else if(mode==Mode::Settings) {
-            if(down&(KEY_B|KEY_START)) {
-                goMenu();
-            } else if(down&(KEY_A|KEY_LEFT|KEY_RIGHT)) {
-                game.setFallMode(game.fallMode()==FigureFallMode::Classic
-                                 ? FigureFallMode::Phobos
-                                 : FigureFallMode::Classic);
+            if(settingsPage==0) {
+                if(down&KEY_UP) settingsIndex=(settingsIndex+2)%3;
+                if(down&KEY_DOWN) settingsIndex=(settingsIndex+1)%3;
+                if(down&(KEY_B|KEY_START)) {
+                    goMenu();
+                } else if((down&(KEY_LEFT|KEY_RIGHT)) && settingsIndex==0) {
+                    game.setFallMode(game.fallMode()==FigureFallMode::Classic
+                                     ? FigureFallMode::Phobos
+                                     : FigureFallMode::Classic);
+                } else if(down&KEY_A) {
+                    if(settingsIndex==0) {
+                        game.setFallMode(game.fallMode()==FigureFallMode::Classic
+                                         ? FigureFallMode::Phobos
+                                         : FigureFallMode::Classic);
+                    } else if(settingsIndex==1) {
+                        settingsPage=1;
+                        settingsIndex=0;
+                    } else {
+                        goMenu();
+                    }
+                }
+            } else {
+                const int count=PIECE_COUNT+1;
+                if(down&KEY_UP) settingsIndex=(settingsIndex+count-1)%count;
+                if(down&KEY_DOWN) settingsIndex=(settingsIndex+1)%count;
+                if(down&(KEY_B|KEY_START)) {
+                    settingsPage=0;
+                    settingsIndex=1;
+                } else if(down&KEY_A) {
+                    if(settingsIndex==PIECE_COUNT) {
+                        settingsPage=0;
+                        settingsIndex=1;
+                    } else {
+                        const bool next=!game.pieceEnabled(settingsIndex);
+                        if(!game.setPieceEnabled(settingsIndex,next))
+                            codes.message="KEEP AT LEAST ONE PIECE";
+                        else
+                            codes.message=std::string(PIECE_CHARACTERS[settingsIndex])+
+                                          (next?" ACTIVE":" DELETED");
+                        codes.messageFrames=150;
+                    }
+                }
             }
 
         } else if(mode==Mode::Tetris) {
@@ -2717,7 +2755,7 @@ int main() {
 
             if(mode==Mode::Intro) renderIntro(topTarget,bottom,intro,eye);
             else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio,eye);
-            else if(mode==Mode::Settings) renderSettings(topTarget,bottom,game,eye);
+            else if(mode==Mode::Settings) renderSettings(topTarget,bottom,game,settingsPage,settingsIndex,eye);
             else if(mode==Mode::Tetris) {
                 renderTetrisTop(game,topTarget,codes,eye);
                 renderTetrisBottom(game,bottom,audio,codes);
