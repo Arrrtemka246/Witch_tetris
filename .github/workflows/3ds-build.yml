@@ -25,10 +25,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install 3DS libraries
+      - name: Install 3DS libraries and asset tools
         run: |
           dkp-pacman -S --needed --noconfirm 3ds-dev 3ds-mpg123
-          python3 -m pip install --break-system-packages Pillow
+          apt-get update -qq
+          apt-get install -y -qq python3-pil
 
       - name: Build content-enabled .3dsx
         run: make -C 3ds -j2
