@@ -733,7 +733,7 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
         drawCharacterMiniPiece(game.holdKind(), 315 + hudShift, 151, 11.0f, 0.83f);
         drawText(PIECE_CHARACTERS[game.holdKind()], 284 + hudShift, 199, 0.24f, text);
     }
-    drawText("START MENU", 284 + hudShift, 214, 0.22f, text);
+    drawText("START/SELECT PAUSE", 281 + hudShift, 214, 0.20f, text);
 
     // Phobos remains visible but no longer occupies a whole HUD column.
     const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
@@ -751,9 +751,11 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     }
 
     if (game.paused()) {
-        drawPanel(92, 78, 216, 82, accent, 0.90f);
-        drawText("PAUSED", 146, 96, 0.66f, accent);
-        drawText("SELECT: resume", 125, 128, 0.40f, text);
+        const float pauseShift = -eyeShift * 5.20f;
+        C2D_DrawRectSolid(0,0,0.91f,400,240,color(0,0,0,54));
+        drawPanel(92 + pauseShift, 78, 216, 82, accent, 0.95f);
+        drawText("PAUSED", 146 + pauseShift, 96, 0.66f, accent);
+        drawText("START / SELECT: RESUME", 109 + pauseShift, 128, 0.33f, text);
     } else if (game.gameOver()) {
         drawPanel(78, 72, 244, 98, color(225,75,95), 0.90f);
         drawText("GAME OVER", 120, 92, 0.66f, color(245,100,115));
@@ -784,8 +786,8 @@ void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
     drawText("A / B  ROTATE", 16, 61, 0.29f, text);
     drawText("X      HOLD", 16, 79, 0.29f, text);
     drawText("Y / UP HARD DROP", 16, 97, 0.29f, text);
-    drawText("SELECT PAUSE", 16, 115, 0.29f, text);
-    drawText("START  MENU", 16, 133, 0.29f, text);
+    drawText("START / SELECT", 16, 115, 0.29f, text);
+    drawText("PAUSE / RESUME", 16, 133, 0.29f, text);
 
     drawText("AUDIO", 16, 157, 0.29f, accent);
     std::string status = audio.status();
@@ -811,6 +813,7 @@ void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
 enum class Mode {
     Intro,
     Menu,
+    Settings,
     Tetris,
     CutsceneMenu,
     Cutscene,
@@ -874,6 +877,7 @@ struct CutsceneState {
 
 const char* MENU_ITEMS[] = {
     "NEW GAME",
+    "SETTINGS",
     "CUTSCENES",
     "PHOBOS ROOM",
     "EXIT"
@@ -966,6 +970,46 @@ void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
                  color(245,170,180));
 
     drawText("D-Pad: select    A: open    START: exit", 12, 207, 0.36f, accent);
+}
+
+void renderSettings(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
+                    const Game& game, float eyeShift = 0.0f) {
+    const u32 accent = color(211,143,255);
+    const u32 text = color(245,240,250);
+    const float bgShift = eyeShift * 1.35f;
+    const float panelShift = -eyeShift * 0.35f;
+    const float choiceShift = -eyeShift * 1.20f;
+
+    C2D_TargetClear(top, color(8,7,14));
+    C2D_SceneBegin(top);
+    drawAssetFit("bg_menu", -7 + bgShift, -4, 414, 248, 0.08f, true, 1.0f);
+    C2D_DrawRectSolid(0,0,0.18f,400,240,color(0,0,0,70));
+
+    drawPanel(44 + panelShift, 24, 312, 192, accent, 0.50f);
+    drawText("SETTINGS", 132 + panelShift, 38, 0.62f, accent);
+    drawText("FIGURE FALL MODE", 92 + panelShift, 79, 0.37f, text);
+
+    const bool classic = game.fallMode() == FigureFallMode::Classic;
+    if (classic)
+        C2D_DrawRectSolid(73 + choiceShift, 106, 0.73f, 254, 34, color(102,52,132,225));
+    else
+        C2D_DrawRectSolid(73 + choiceShift, 151, 0.73f, 254, 34, color(102,52,132,225));
+
+    drawText(std::string(classic ? "> " : "  ") + "CLASSIC — 7-BAG",
+             91 + (classic ? choiceShift : panelShift), 115, 0.39f,
+             classic ? accent : text);
+    drawText(std::string(!classic ? "> " : "  ") + "PHOBOS — CHAOS",
+             91 + (!classic ? choiceShift : panelShift), 160, 0.39f,
+             !classic ? accent : text);
+    drawText("A / LEFT / RIGHT — SWITCH", 82 + panelShift, 196, 0.30f, text);
+
+    C2D_TargetClear(bottom, color(12,9,20));
+    C2D_SceneBegin(bottom);
+    drawText("CLASSIC IS THE DEFAULT", 12, 18, 0.46f, accent);
+    drawText("CLASSIC: independent seven-piece bag.", 12, 63, 0.37f, text);
+    drawText("PHOBOS: drought protection + deliberate repeats.", 12, 91, 0.32f, text);
+    drawText("The selected mode is used by NEW GAME.", 12, 131, 0.35f, text);
+    drawText("B / START — BACK", 12, 207, 0.39f, accent);
 }
 
 void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const IntroState& intro) {
@@ -1883,9 +1927,11 @@ int main() {
                     mode=Mode::Tetris;
                     setMusic(musicForTetris(0),true);
                 } else if(menuIndex==1) {
+                    mode=Mode::Settings;
+                } else if(menuIndex==2) {
                     mode=Mode::CutsceneMenu;
                     cutsceneIndex=0;
-                } else if(menuIndex==2) {
+                } else if(menuIndex==3) {
                     mode=Mode::PhobosRoom;
                     phobosState=0;
                     setMusic("romfs:/audio/phobos_room.mp3",true);
@@ -1894,9 +1940,22 @@ int main() {
                 }
             }
 
+        } else if(mode==Mode::Settings) {
+            if(down&(KEY_B|KEY_START)) {
+                goMenu();
+            } else if(down&(KEY_A|KEY_LEFT|KEY_RIGHT)) {
+                game.setFallMode(game.fallMode()==FigureFallMode::Classic
+                                 ? FigureFallMode::Phobos
+                                 : FigureFallMode::Classic);
+            }
+
         } else if(mode==Mode::Tetris) {
             if(codes.open) {
-                if(down&(KEY_B|KEY_START)) {
+                if(down&(KEY_START|KEY_SELECT)) {
+                    codes.open=false;
+                    codes.buffer.clear();
+                    game.togglePause();
+                } else if(down&KEY_B) {
                     codes.open=false;
                     codes.buffer.clear();
                 }
@@ -1932,10 +1991,8 @@ int main() {
                     codes.buffer.clear();
                     codes.message="CAPS READY — TAP Q FOR +10";
                     codes.messageFrames=240;
-                } else if(down&KEY_START) {
-                    goMenu();
                 } else {
-                    if(down&KEY_SELECT) game.togglePause();
+                    if(down&(KEY_START|KEY_SELECT)) game.togglePause();
                     if(game.gameOver()) {
                         if(down&KEY_A) {
                             game.reset();
@@ -2031,6 +2088,7 @@ int main() {
 
             if(mode==Mode::Intro) renderIntro(topTarget,bottom,intro);
             else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio,eye);
+            else if(mode==Mode::Settings) renderSettings(topTarget,bottom,game,eye);
             else if(mode==Mode::Tetris) {
                 renderTetrisTop(game,topTarget,codes,eye);
                 renderTetrisBottom(game,bottom,audio,codes);
