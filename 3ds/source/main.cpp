@@ -2717,26 +2717,44 @@ int main() {
                 if(down&(KEY_B|KEY_START)) {
                     mode=cutscene.returnMode;
                     if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-                    else if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
+                    else if(mode==Mode::Tetris) startGameplayMusic(true);
                 } else if(elapsed>=30.65f && ((down&KEY_A)||touchPressed)) {
                     mode=cutscene.returnMode;
                     if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-                    else if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
+                    else if(mode==Mode::Tetris) startGameplayMusic(true);
                 }
             } else {
                 const int total=cutscene.kind==CutsceneKind::Lines100?8:6;
-                if(down&(KEY_B|KEY_START)) {
-                    mode=cutscene.returnMode;
-                    if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
-                    else if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-                } else if((down&KEY_A)||touchPressed) {
-                    ++cutscene.frame;
-                    if(cutscene.frame>=total) {
-                        mode=cutscene.returnMode;
-                        if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
-                        else setMusic("romfs:/audio/menu_1.mp3",true);
+                const bool leave=(down&(KEY_B|KEY_START))!=0;
+                const bool advance=((down&KEY_A)||touchPressed);
+                if(leave || advance) {
+                    if(advance) ++cutscene.frame;
+                    if(leave || cutscene.frame>=total) {
+                        if(cutscene.kind==CutsceneKind::Lines200 &&
+                           cutscene.returnMode==Mode::Tetris) {
+                            mode=Mode::RouteChoice;
+                            routeChoice=0;
+                            audio.play("romfs:/audio/music_winner_choice.mp3",true);
+                        } else {
+                            mode=cutscene.returnMode;
+                            if(mode==Mode::Tetris) startGameplayMusic(true);
+                            else if(mode==Mode::CutsceneMenu)
+                                setMusic("romfs:/audio/menu_1.mp3",true);
+                        }
                     }
                 }
+            }
+
+        } else if(mode==Mode::RouteChoice) {
+            if(down&(KEY_LEFT|KEY_RIGHT)) routeChoice=1-routeChoice;
+            if(down&KEY_A) {
+                guardiansRoute=(routeChoice==0);
+                phobosRoute=(routeChoice==1);
+                shown300=false;
+                manualMusicPhase=-999;
+                mode=Mode::Tetris;
+                startGameplayMusic(true);
+                codeMessage(guardiansRoute?"GUARDIANS ROUTE":"PHOBOS ROUTE");
             }
 
         } else if(mode==Mode::PhobosRoom) {
@@ -2762,6 +2780,7 @@ int main() {
             }
             else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(topTarget,bottom,cutsceneIndex);
             else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed,eye);
+            else if(mode==Mode::RouteChoice) renderRouteChoice(topTarget,bottom,routeChoice,eye);
             else renderPhobosRoom(topTarget,bottom,phobosState,eye);
         };
 
