@@ -115,7 +115,7 @@ CORE_IMAGES = {
 
     # Secret-code visuals from the desktop build.
     "jetix_logo": ("secrets/jetix/Jetix.png", "actor"),
-    "vtd_observer": ("menu/vtd/observer.jpg", "actor"),
+    "vtd_observer": ("menu/vtd/observer.jpg", "dark_actor"),
 
 }
 
@@ -263,6 +263,35 @@ def transcode_voice(src: Path, dst: Path) -> None:
         str(dst),
     )
 
+def remove_border_dark(im: Image.Image, threshold: int = 18) -> Image.Image:
+    """Remove only dark pixels connected to the image border."""
+    im = im.convert("RGBA")
+    px = im.load()
+    w, h = im.size
+
+    def dark(x: int, y: int) -> bool:
+        r, g, b, a = px[x, y]
+        return a > 0 and max(r, g, b) <= threshold
+
+    stack = []
+    for x in range(w):
+        stack.extend(((x, 0), (x, h - 1)))
+    for y in range(h):
+        stack.extend(((0, y), (w - 1, y)))
+
+    seen = set()
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in seen or x < 0 or y < 0 or x >= w or y >= h:
+            continue
+        if not dark(x, y):
+            continue
+        seen.add((x, y))
+        r, g, b, _ = px[x, y]
+        px[x, y] = (r, g, b, 0)
+        stack.extend(((x-1,y),(x+1,y),(x,y-1),(x,y+1)))
+    return im
+
 def save_processed(src: Path, dst: Path, mode: str) -> None:
     with Image.open(src) as im:
         im = im.convert("RGBA")
@@ -270,6 +299,13 @@ def save_processed(src: Path, dst: Path, mode: str) -> None:
             im = ImageOps.fit(im, (400, 240), method=Image.Resampling.LANCZOS)
         elif mode == "icon":
             im.thumbnail((96, 96), Image.Resampling.LANCZOS)
+        elif mode == "dark_actor":
+            im = remove_border_dark(im, 18)
+            alpha = im.getchannel("A")
+            bbox = alpha.getbbox()
+            if bbox:
+                im = im.crop(bbox)
+            im.thumbnail((300, 220), Image.Resampling.LANCZOS)
         elif mode == "actor":
             im.thumbnail((300, 220), Image.Resampling.LANCZOS)
         else:
