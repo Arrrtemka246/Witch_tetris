@@ -66,6 +66,28 @@ CORE_IMAGES = {
     "intro_haylin": ("cutscenes/intro/processed/haylin_normal.png", "actor"),
     "intro_caleb": ("cutscenes/intro/processed/caleb_normal.png", "actor"),
     "intro_blunk": ("cutscenes/intro/processed/blunk_normal.png", "actor"),
+    "intro_will_t1": ("cutscenes/intro/processed/will_t1.png", "actor"),
+    "intro_will_t2": ("cutscenes/intro/processed/will_t2.png", "actor"),
+    "intro_will_final": ("cutscenes/intro/processed/will_final.png", "actor"),
+    "intro_irma_t1": ("cutscenes/intro/processed/irma_t1.png", "actor"),
+    "intro_irma_t2": ("cutscenes/intro/processed/irma_t2.png", "actor"),
+    "intro_irma_final": ("cutscenes/intro/processed/irma_final.png", "actor"),
+    "intro_taranee_t1": ("cutscenes/intro/processed/taranee_t1.png", "actor"),
+    "intro_taranee_t2": ("cutscenes/intro/processed/taranee_t2.png", "actor"),
+    "intro_taranee_final": ("cutscenes/intro/processed/taranee_final.png", "actor"),
+    "intro_cornelia_t1": ("cutscenes/intro/processed/cornelia_t1.png", "actor"),
+    "intro_cornelia_t2": ("cutscenes/intro/processed/cornelia_t2.png", "actor"),
+    "intro_cornelia_final": ("cutscenes/intro/processed/cornelia_final.png", "actor"),
+    "intro_haylin_t1": ("cutscenes/intro/processed/haylin_t1.png", "actor"),
+    "intro_haylin_t2": ("cutscenes/intro/processed/haylin_t2.png", "actor"),
+    "intro_haylin_final": ("cutscenes/intro/processed/haylin_final.png", "actor"),
+    "intro_caleb_t1": ("cutscenes/intro/processed/caleb_t1.png", "actor"),
+    "intro_caleb_t2": ("cutscenes/intro/processed/caleb_t2.png", "actor"),
+    "intro_caleb_final": ("cutscenes/intro/processed/caleb_final.png", "actor"),
+    "intro_blunk_t1": ("cutscenes/intro/processed/blunk_t1.png", "actor"),
+    "intro_blunk_t2": ("cutscenes/intro/processed/blunk_t2.png", "actor"),
+    "intro_blunk_final": ("cutscenes/intro/processed/blunk_final.png", "actor"),
+    "intro_irma_horror": ("cutscenes/intro/processed/irma_horror.png", "actor"),
 
     # 100 line cutscene
     "l100_phobos": ("cutscenes/lines100/phobos_action.png", "actor"),
@@ -109,6 +131,13 @@ CORE_AUDIO = {
     "phase2_guardians.mp3": "audio/collection/witch_ending.mp3",
     "phase2_phobos.mp3": "audio/music/phobos_route/Phobos_main_theme_3_phase.mp3",
     "phobos_room.mp3": "audio/music/phobos_room/PhobosthemeDark.mp3",
+    "vtd_1.mp3": "audio/music/secrets/vtd/vtd_01.mp3",
+    "vtd_2.mp3": "audio/music/secrets/vtd/vtd_02.mp3",
+    "voice_phobos.mp3": "audio/voice/phobos/dark_side.mp3",
+    "voice_matrix.mp3": "audio/voice/phobos/matrix_fan.mp3",
+    "voice_porn.mp3": "audio/voice/phobos/porn_reaction.mp3",
+    "voice_devq.mp3": "audio/voice/phobos/not_bad.mp3",
+    "ending_outro.mp3": "audio/music/ending/witch_end_outro.mp3",
 }
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
@@ -176,12 +205,53 @@ def build_story_frames() -> None:
         save_processed(src, tmp, "fit")
         to_t3x(tmp, GFX / f"{key}.t3x")
 
+
+def build_sequence_atlas(key: str, files: list[Path], max_h: int = 150) -> None:
+    seq_dir = WORK / "ending" / key
+    seq_dir.mkdir(parents=True, exist_ok=True)
+    atlas_lines = ["--atlas -f rgba5551 -z auto"]
+    for index, src in enumerate(files):
+        with Image.open(src) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((190, max_h), Image.Resampling.LANCZOS)
+            name = f"{index:02d}.png"
+            im.save(seq_dir / name)
+            atlas_lines.append(name)
+    t3s = seq_dir / f"{key}.t3s"
+    t3s.write_text("\n".join(atlas_lines) + "\n", encoding="utf-8")
+    run("tex3ds", "-i", str(t3s), "-o", str(GFX / f"{key}.t3x"))
+
+def build_ending_assets() -> None:
+    ready = ASSETS / "cutscenes" / "ending" / "ready"
+    picks = {
+        "ending_heart": [0,4,8,12,16,20],
+        "ending_will": [0,1,2,3,4,5],
+        "ending_irma": [0,1,2,3,4,5],
+        "ending_taranee": [0,1,2,3,4,5],
+        "ending_haylin": [0,1,2,3,4,5],
+        "ending_blunk": [0,1,2,3,4,5],
+        "ending_caleb": [0,2,4,6,8,10],
+        "ending_cornelia": [0,2,4,6,8,10],
+        "ending_enemies": [0,1,2,3,4,5],
+        "ending_bats": [0,1,2,3,4,5],
+    }
+    for key, indices in picks.items():
+        stem = key.removeprefix("ending_")
+        files = [ready / f"{stem}_{i:02d}.png" for i in indices]
+        if all(p.exists() for p in files):
+            build_sequence_atlas(key, files, 150 if stem != "blunk" else 105)
+
+    cedric = ready / "cedric_00.png"
+    if cedric.exists():
+        build_sequence_atlas("ending_cedric", [cedric], 180)
+
 def build_core() -> None:
     for p in (ROMFS, WORK, GFX, AUDIO):
         p.mkdir(parents=True, exist_ok=True)
 
     build_phase1_cells()
     build_story_frames()
+    build_ending_assets()
 
     for key, (rel, mode) in CORE_IMAGES.items():
         src = ASSETS / rel
