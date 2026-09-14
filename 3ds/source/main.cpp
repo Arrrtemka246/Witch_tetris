@@ -862,6 +862,7 @@ enum class Mode {
     Tetris,
     CutsceneMenu,
     Cutscene,
+    RouteChoice,
     MiniMenu,
     MiniGame,
     PhobosRoom
@@ -1018,7 +1019,8 @@ void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
 }
 
 void renderSettings(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
-                    const Game& game, float eyeShift = 0.0f) {
+                    const Game& game, int page, int selected,
+                    float eyeShift = 0.0f) {
     const u32 accent = color(211,143,255);
     const u32 text = color(245,240,250);
     const float bgShift = eyeShift * 1.35f;
@@ -1029,32 +1031,91 @@ void renderSettings(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
     C2D_SceneBegin(top);
     drawAssetFit("bg_menu", -7 + bgShift, -4, 414, 248, 0.08f, true, 1.0f);
     C2D_DrawRectSolid(0,0,0.18f,400,240,color(0,0,0,70));
+    drawPanel(37 + panelShift, 13, 326, 214, accent, 0.50f);
 
-    drawPanel(44 + panelShift, 24, 312, 192, accent, 0.50f);
-    drawText("SETTINGS", 132 + panelShift, 38, 0.62f, accent);
-    drawText("FIGURE FALL MODE", 92 + panelShift, 79, 0.37f, text);
-
-    const bool classic = game.fallMode() == FigureFallMode::Classic;
-    if (classic)
-        C2D_DrawRectSolid(73 + choiceShift, 106, 0.73f, 254, 34, color(102,52,132,225));
-    else
-        C2D_DrawRectSolid(73 + choiceShift, 151, 0.73f, 254, 34, color(102,52,132,225));
-
-    drawText(std::string(classic ? "> " : "  ") + "CLASSIC — 7-BAG",
-             91 + (classic ? choiceShift : panelShift), 115, 0.39f,
-             classic ? accent : text);
-    drawText(std::string(!classic ? "> " : "  ") + "PHOBOS — CHAOS",
-             91 + (!classic ? choiceShift : panelShift), 160, 0.39f,
-             !classic ? accent : text);
-    drawText("A / LEFT / RIGHT — SWITCH", 82 + panelShift, 196, 0.30f, text);
+    if (page == 0) {
+        drawText("SETTINGS", 132 + panelShift, 26, 0.60f, accent);
+        const char* items[]={"FIGURE FALL MODE","CHARACTERS","BACK"};
+        for(int i=0;i<3;++i) {
+            const float y=83+i*45;
+            if(i==selected)
+                C2D_DrawRectSolid(61+choiceShift,y-6,0.72f,278,32,color(102,52,132,225));
+            drawText(std::string(i==selected?"> ":"  ")+items[i],
+                     76+(i==selected?choiceShift:panelShift),y,0.38f,
+                     i==selected?accent:text);
+        }
+        drawText(std::string("MODE: ")+game.fallModeLabel(),
+                 103+panelShift,55,0.34f,text);
+    } else {
+        drawText("SETTINGS — CHARACTERS", 69 + panelShift, 24, 0.47f, accent);
+        drawText("A toggles a tetromino / character", 82 + panelShift, 49, 0.27f, text);
+        const char* labels[PIECE_COUNT]={"CORNELIA / I","BLUNK / O","CALEB / T",
+                                        "IRMA / S","WILL / Z","TARANEE / J","HAY LIN / L"};
+        for(int i=0;i<PIECE_COUNT;++i) {
+            const float y=73+i*21;
+            if(i==selected)
+                C2D_DrawRectSolid(57+choiceShift,y-3,0.72f,286,20,color(102,52,132,225));
+            const std::string state=game.pieceEnabled(i)?"ACTIVE":"DELETED";
+            drawText(std::string(i==selected?"> ":"  ")+labels[i],
+                     68+(i==selected?choiceShift:panelShift),y,0.28f,
+                     i==selected?accent:text);
+            drawText(state, 281+(i==selected?choiceShift:panelShift),y,0.23f,
+                     game.pieceEnabled(i)?color(130,240,160):color(245,95,110));
+        }
+        const int back=PIECE_COUNT;
+        const float by=220;
+        if(selected==back)
+            C2D_DrawRectSolid(132+choiceShift,by-4,136,19,0.72f,color(102,52,132,225));
+        drawText(std::string(selected==back?"> ":"  ")+"BACK",
+                 160+(selected==back?choiceShift:panelShift),by,0.28f,
+                 selected==back?accent:text);
+    }
 
     C2D_TargetClear(bottom, color(12,9,20));
     C2D_SceneBegin(bottom);
-    drawText("CLASSIC IS THE DEFAULT", 12, 18, 0.46f, accent);
-    drawText("CLASSIC: independent seven-piece bag.", 12, 63, 0.37f, text);
-    drawText("PHOBOS: drought protection + deliberate repeats.", 12, 91, 0.32f, text);
-    drawText("The selected mode is used by NEW GAME.", 12, 131, 0.35f, text);
-    drawText("B / START — BACK", 12, 207, 0.39f, accent);
+    if(page==0) {
+        drawText("GAME SETTINGS",12,18,0.46f,accent);
+        drawText("Classic: independent seven-piece bag.",12,61,0.35f,text);
+        drawText("Phobos: controlled chaos and repeats.",12,88,0.34f,text);
+        drawText("A / LEFT / RIGHT changes the selected item.",12,131,0.31f,text);
+    } else {
+        drawText("CHARACTER ROSTER",12,18,0.46f,accent);
+        drawText("Deleted pieces stop spawning and disappear",12,62,0.33f,text);
+        drawText("from NEXT and their gameplay reactions.",12,87,0.33f,text);
+        drawText("At least one piece must remain active.",12,122,0.33f,accent);
+    }
+    drawText("B / START — BACK",12,207,0.39f,accent);
+}
+
+void renderRouteChoice(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
+                       int selected, float eyeShift = 0.0f) {
+    const u32 accent=color(211,143,255), text=color(245,240,250);
+    const float bgShift=eyeShift*1.2f, actorShift=-eyeShift*2.2f, uiShift=-eyeShift*0.9f;
+
+    C2D_TargetClear(top,color(5,3,9));
+    C2D_SceneBegin(top);
+    drawAssetFit("bg_phase1",-6+bgShift,-3,412,246,0.08f,true,1.0f);
+    C2D_DrawRectSolid(0,0,0.22f,400,240,color(0,0,0,86));
+    drawAssetFit("l100_will",20+actorShift,46,118,165,0.52f);
+    drawAssetFit("intro_phobos_cast",265-actorShift,31,120,180,0.56f);
+    drawPanel(82+uiShift,12,236,49,accent,0.76f);
+    drawText("WHO WINS?",132+uiShift,27,0.54f,text);
+
+    const float gx=33, px=211, y=160, w=156, h=48;
+    if(selected==0) C2D_DrawRectSolid(gx+uiShift,y,0.83f,w,h,color(70,105,155,235));
+    else C2D_DrawRectSolid(px+uiShift,y,0.83f,w,h,color(105,45,130,235));
+    drawText(std::string(selected==0?"> ":"  ")+"GUARDIANS",
+             gx+17+uiShift,y+16,0.38f,selected==0?color(180,225,255):text);
+    drawText(std::string(selected==1?"> ":"  ")+"PHOBOS",
+             px+31+uiShift,y+16,0.38f,selected==1?accent:text);
+
+    C2D_TargetClear(bottom,color(10,7,17));
+    C2D_SceneBegin(bottom);
+    drawText("200 LINES — CHOOSE THE WINNER",12,18,0.43f,accent);
+    drawText("LEFT / RIGHT — choose",12,72,0.39f,text);
+    drawText("A / TOUCH — confirm",12,103,0.39f,text);
+    drawText("This choice changes the post-200 route,",12,150,0.32f,text);
+    drawText("music and Phobos Room behaviour.",12,175,0.32f,text);
 }
 
 void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
