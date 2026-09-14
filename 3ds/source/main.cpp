@@ -2019,10 +2019,16 @@ int main() {
         std::vector<std::string> pool=gameplayMusicPool();
         if(pool.empty()) return;
         const int key=gameplayMusicKey();
-        if(key!=manualMusicPhase) {
+        const bool phaseChanged = key!=manualMusicPhase;
+        if(phaseChanged) {
             manualMusicPhase=key;
             manualMusicIndex=static_cast<int>(uiRng()%pool.size());
             forceNew=true;
+        } else if(!audio.playing() && !forceNew && pool.size()>1) {
+            int next=manualMusicIndex;
+            while(next==manualMusicIndex)
+                next=static_cast<int>(uiRng()%pool.size());
+            manualMusicIndex=next;
         }
         if(forceNew || !audio.playing()) {
             manualMusicIndex%=static_cast<int>(pool.size());
@@ -2411,11 +2417,13 @@ int main() {
         if(endsWith(b,"VTD") || endsWith(b,"ВТД") || endsWith(b,"ВАЛЕНТИН")) {
             codes.vtdMode=!codes.vtdMode;
             voiceTakeover=false;
+            voiceAudio.stop();
+            audio.setVolume(1.0f);
             voiceFollowups.clear();
-            resumeAfterVoice.clear();
             manualMusicPhase=-999;
-            audio.play(phaseOrSecretMusic(),true);
-            codeMessage(codes.vtdMode?"VTD MODE ON":"VTD MODE OFF");
+            if(!codes.vtdMode) game.setFallMode(FigureFallMode::Classic);
+            startGameplayMusic(true);
+            codeMessage(codes.vtdMode?"VTD / VALENTIN ON":"VTD OFF — CLASSIC");
             codes.buffer.clear();
             return true;
         }
@@ -2450,21 +2458,18 @@ int main() {
         if(touchPressed) hidTouchRead(&touch);
 
         audio.update();
+        voiceAudio.update();
 
-        if(voiceTakeover && !audio.playing()) {
+        if(voiceTakeover && !voiceAudio.playing()) {
             bool followupStarted=false;
             while(!voiceFollowups.empty() && !followupStarted) {
                 const std::string next=voiceFollowups.front();
                 voiceFollowups.pop_front();
-                followupStarted=audio.play(next,false);
+                followupStarted=voiceAudio.play(next,false);
             }
             if(!followupStarted) {
                 voiceTakeover=false;
-                if(!resumeAfterVoice.empty()) {
-                    const std::string resume=resumeAfterVoice;
-                    resumeAfterVoice.clear();
-                    audio.play(resume,true);
-                }
+                audio.setVolume(1.0f);
             }
         }
 
@@ -2482,8 +2487,7 @@ int main() {
                 intro.frames=0;
                 if(intro.scene>=8) goMenu();
             }
-            if(!voiceTakeover)
-                setMusic("romfs:/audio/intro.mp3",false);
+            setMusic("romfs:/audio/intro.mp3",false);
 
         } else if(mode==Mode::Menu) {
             if(down&KEY_START) quit=true;
@@ -2494,13 +2498,17 @@ int main() {
                     game.reset();
                     shown100=false;
                     shown200=false;
+                    shown300=false;
+                    guardiansRoute=false;
+                    phobosRoute=false;
                     codes=CodeKeyboardState();
                     voiceTakeover=false;
+                    voiceAudio.stop();
+                    audio.setVolume(1.0f);
                     voiceFollowups.clear();
-                    resumeAfterVoice.clear();
                     manualMusicPhase=-999;
                     mode=Mode::Tetris;
-                    audio.play(phaseOrSecretMusic(),true);
+                    startGameplayMusic(true);
                     resetRunReactions();
                     maybeOpeningReaction();
                 } else if(menuIndex==1) {
@@ -2595,12 +2603,16 @@ int main() {
                             game.reset();
                             shown100=false;
                             shown200=false;
+                            shown300=false;
+                            guardiansRoute=false;
+                            phobosRoute=false;
                             codes.vtdMode=false;
                             voiceTakeover=false;
+                            voiceAudio.stop();
+                            audio.setVolume(1.0f);
                             voiceFollowups.clear();
-                            resumeAfterVoice.clear();
                             manualMusicPhase=-999;
-                            audio.play(phaseOrSecretMusic(),true);
+                            startGameplayMusic(true);
                             resetRunReactions();
                             maybeOpeningReaction();
                         }
@@ -2630,8 +2642,7 @@ int main() {
             observeSpawn();
             processGameOverReaction();
 
-            if(!voiceTakeover)
-                setMusic(phaseOrSecretMusic(),true);
+            startGameplayMusic(false);
 
             if(!shown100&&game.lines()>=100) {
                 shown100=true;
@@ -2723,6 +2734,7 @@ int main() {
         C3D_FrameEnd(0);
     }
 
+    voiceAudio.shutdown();
     audio.shutdown();
     g_assets.unloadAll();
     C2D_TextBufDelete(g_textBuf);
