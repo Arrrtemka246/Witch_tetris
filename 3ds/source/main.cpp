@@ -987,7 +987,7 @@ private:
             if(i==cover_) C2D_DrawRectSolid(x-30,157,0.64f,60,12,color(145,110,82));
             if(i==dangerLane_) {
                 const float pulse=static_cast<float>(std::max(0,dangerTimer_))/100.0f;
-                C2D_DrawTriangle(x,68,x-9,84,x+9,84,color(245,80,90),color(245,80,90),color(245,80,90),0.7f);
+                C2D_DrawTriangle(x,68,color(245,80,90),x-9,84,color(245,80,90),x+9,84,color(245,80,90),0.7f);
                 (void)pulse;
             }
         }
