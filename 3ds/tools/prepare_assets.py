@@ -70,7 +70,7 @@ CORE_IMAGES = {
     # 100 line cutscene
     "l100_phobos": ("cutscenes/lines100/phobos_action.png", "actor"),
     "l100_will": ("cutscenes/lines100/will_action.png", "actor"),
-    "l100_irma": ("cutscenes/lines100/irma_action.png", "actor"),
+    "l100_irma": ("cutscenes/intro/processed/irma_final.png", "actor"),
     "l100_taranee": ("cutscenes/lines100/taranee_action.png", "actor"),
     "l100_cornelia": ("cutscenes/lines100/cornelia_action.png", "actor"),
     "l100_haylin": ("cutscenes/lines100/haylin_action.png", "actor"),
