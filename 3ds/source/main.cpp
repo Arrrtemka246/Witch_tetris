@@ -764,6 +764,41 @@ enum class CutsceneKind {
     Ending
 };
 
+const char* INTRO_ASSET_KEYS[PIECE_COUNT] = {
+    "cornelia", "blunk", "caleb", "irma", "will", "taranee", "haylin"
+};
+
+struct IntroState {
+    int scene;
+    int frames;
+    int transformKind;
+    int secondKind;
+    bool transformAll;
+    bool horrorIrma;
+
+    IntroState()
+        : scene(0), frames(0), transformKind(I), secondKind(T),
+          transformAll(false), horrorIrma(false) {}
+};
+
+void rerollIntro(IntroState& intro, std::mt19937& rng) {
+    intro.scene = 0;
+    intro.frames = 0;
+    std::uniform_int_distribution<int> kindDist(0, PIECE_COUNT - 1);
+    std::uniform_int_distribution<int> coin(0, 1);
+    std::uniform_int_distribution<int> horror(0, 9);
+
+    intro.transformAll = coin(rng) == 0;
+    intro.transformKind = kindDist(rng);
+    // Avoid making Will the second close-up every time he already opened.
+    do { intro.secondKind = kindDist(rng); } while (intro.secondKind == Z);
+    intro.horrorIrma = horror(rng) == 0;
+}
+
+std::string introAssetKey(int kind, const char* stage) {
+    return std::string("intro_") + INTRO_ASSET_KEYS[kind] + "_" + stage;
+}
+
 struct CutsceneState {
     CutsceneKind kind = CutsceneKind::Lines100;
     int frame = 0;
@@ -826,62 +861,108 @@ void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected, c
     drawText("D-Pad: select    A: open    START: exit", 12, 207, 0.36f, accent);
 }
 
-void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int scene) {
+void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const IntroState& intro) {
     const u32 accent = color(215,145,255);
     const u32 text = color(245,240,250);
+    const int scene = intro.scene;
 
     C2D_TargetClear(top, color(3,3,8));
     C2D_SceneBegin(top);
 
     if (scene == 0) {
         drawFullscreenAsset("intro_castle");
-        C2D_DrawRectSolid(0, 0, 0.3f, 400, 240, color(0,0,0,50));
+        C2D_DrawRectSolid(0, 0, 0.30f, 400, 240, color(0,0,0,42));
         drawPanel(36, 162, 328, 58, accent, 0.80f);
-        drawText("MERIDIAN. THE PALACE OF PHOBOS.", 55, 178, 0.42f, text);
+        drawText("MERIDIAN — PHOBOS CASTLE", 72, 178, 0.42f, text);
     } else {
         drawFullscreenAsset("intro_throne");
-        C2D_DrawRectSolid(0, 0, 0.25f, 400, 240, color(0,0,0,35));
+        C2D_DrawRectSolid(0, 0, 0.25f, 400, 240, color(0,0,0,28));
 
         if (scene == 1) {
-            drawAssetFit("intro_will", 30, 55, 135, 165, 0.45f);
-            drawAssetFit("intro_phobos", 250, 28, 140, 195, 0.44f);
-            drawPanel(55, 174, 290, 50, accent, 0.80f);
-            drawText("WILL: IT'S OVER, PHOBOS!", 77, 190, 0.41f, text);
+            drawAssetFit("intro_will", 30, 48, 135, 172, 0.46f);
+            drawAssetFit("intro_phobos", 248, 24, 145, 200, 0.45f);
+            drawPanel(48, 176, 304, 48, accent, 0.80f);
+            drawText("WILL: IT'S OVER, PHOBOS!", 75, 191, 0.41f, text);
         } else if (scene == 2) {
-            const char* keys[] = {"intro_will","intro_irma","intro_taranee","intro_cornelia","intro_haylin","intro_caleb","intro_blunk"};
-            for (int i = 0; i < 7; ++i) {
-                const float x = 4.0f + i * 55.0f;
-                drawAssetFit(keys[i], x, 85 + (i%2)*12, 62, 130, 0.43f);
-            }
-            drawAssetFit("intro_phobos", 150, 18, 100, 125, 0.42f);
-            drawPanel(40, 182, 320, 43, accent, 0.80f);
-            drawText("THE GUARDIANS REFUSE TO SURRENDER.", 62, 196, 0.37f, text);
+            const std::string key = std::string("intro_") + INTRO_ASSET_KEYS[intro.secondKind];
+            drawAssetFit(key, 120, 24, 160, 197, 0.49f);
+            drawPanel(48, 176, 304, 48, accent, 0.80f);
+            drawText(std::string(PIECE_CHARACTERS[intro.secondKind]) + ": WE WON'T SURRENDER!",
+                     63, 191, 0.34f, text);
         } else if (scene == 3) {
-            drawAssetFit("intro_will_final", 130, 28, 140, 190, 0.48f);
-            drawPanel(55, 176, 290, 48, accent, 0.80f);
-            drawText("THE CURSE CHANGES THEIR FORMS...", 73, 191, 0.38f, text);
+            const bool casting = intro.frames > 95;
+            drawAssetFit(casting ? "intro_phobos_cast" : "intro_phobos",
+                         100, 16, 200, 207, 0.49f);
+            drawPanel(42, 176, 316, 48, accent, 0.80f);
+            drawText("PHOBOS: EVERYTHING IS JUST BEGINNING.", 55, 191, 0.33f, text);
         } else if (scene == 4) {
-            drawAssetFit("intro_phobos_cast", 93, 18, 214, 205, 0.47f);
-            drawPanel(65, 180, 270, 43, accent, 0.80f);
-            drawText("PHOBOS: NOW WE BEGIN.", 103, 194, 0.42f, text);
+            drawAssetFit("intro_phobos_cast", 90, 10, 220, 216, 0.55f);
+            const int pulse = (intro.frames / 8) % 2;
+            if (pulse)
+                C2D_DrawRectSolid(0,0,0.73f,400,240,color(220,175,255,52));
+            drawText("THE SPELL", 150, 202, 0.40f, accent);
+        } else if (scene == 5) {
+            C2D_DrawRectSolid(0,0,0.35f,400,240,color(35,0,55,80));
+            const int stage = intro.frames < 32 ? 0 :
+                              intro.frames < 78 ? 1 :
+                              intro.frames < 132 ? 2 : 3;
+            const char* stageName = stage == 0 ? "normal" :
+                                    stage == 1 ? "t1" :
+                                    stage == 2 ? "t2" : "final";
+
+            if (intro.transformAll) {
+                const float xs[PIECE_COUNT] = {23, 74, 125, 176, 227, 278, 329};
+                for (int kind=0; kind<PIECE_COUNT; ++kind) {
+                    std::string key = introAssetKey(kind, stageName);
+                    drawAssetFit(key, xs[kind], 64 + (kind%2)*10, 52, 142, 0.56f);
+                }
+                drawPanel(43, 187, 314, 38, accent, 0.81f);
+                drawText("ALL SEVEN ARE TRANSFORMING", 78, 198, 0.34f, text);
+            } else {
+                std::string key;
+                if (intro.transformKind == Z && intro.horrorIrma && stage == 2) {
+                    // Z is Will in gameplay. Horror Irma is only valid when Irma
+                    // itself is selected, so this branch is intentionally not used.
+                    key = introAssetKey(intro.transformKind, stageName);
+                } else if (intro.transformKind == S && intro.horrorIrma && stage == 2) {
+                    key = "intro_irma_horror";
+                } else {
+                    key = introAssetKey(intro.transformKind, stageName);
+                }
+                drawAssetFit(key, 115, 16, 170, 205, 0.57f);
+                drawPanel(48, 177, 304, 47, accent, 0.82f);
+                drawText(std::string(PIECE_CHARACTERS[intro.transformKind]) + " — TRANSFORMATION",
+                         78, 191, 0.35f, text);
+            }
+        } else if (scene == 6) {
+            drawAssetFit("intro_phobos", 104, 14, 192, 210, 0.50f);
+            drawPanel(48, 177, 304, 47, accent, 0.82f);
+            drawText("PHOBOS: NOW YOUR POWER IS MINE.", 67, 191, 0.34f, text);
         } else {
             drawFullscreenAsset("bg_phase0");
-            C2D_DrawRectSolid(0,0,0.3f,400,240,color(0,0,0,105));
+            C2D_DrawRectSolid(0,0,0.32f,400,240,color(0,0,0,105));
             drawPanel(52, 72, 296, 100, accent, 0.80f);
             drawText("W.I.T.C.H. TETRIS", 92, 93, 0.70f, accent);
-            drawText("THE GAME IS YOUR PRISON.", 93, 132, 0.41f, text);
+            drawText("THE GAME HAS BEGUN.", 104, 132, 0.41f, text);
         }
     }
 
     C2D_TargetClear(bottom, color(12,9,20));
     C2D_SceneBegin(bottom);
-    drawText("ORIGINAL INTRO — 3DS ADAPTATION", 10, 14, 0.47f, accent);
-    drawText("Artwork comes from assets/cutscenes/intro.", 10, 58, 0.38f, text);
+    drawText("ORIGINAL INTRO — RANDOMIZED", 10, 14, 0.45f, accent);
+    if (scene == 5) {
+        drawText(intro.transformAll ? "TRANSFORM MODE: ALL CHARACTERS"
+                                    : std::string("TRANSFORM MODE: ") + PIECE_CHARACTERS[intro.transformKind],
+                 10, 55, 0.34f, text);
+        drawText("50% ALL / 50% ONE RANDOM CHARACTER", 10, 78, 0.30f, accent);
+    } else {
+        drawText("The random branch is rerolled on every replay.", 10, 58, 0.32f, text);
+    }
     C2D_DrawRectSolid(12, 114, 0.75f, 296, 48, color(88,45,118,230));
     drawText("A / TOUCH — NEXT SCENE", 50, 128, 0.44f, text);
     drawText("B / START — skip to menu", 10, 174, 0.40f, text);
     char buf[40];
-    std::snprintf(buf, sizeof(buf), "SCENE %d / 6", scene + 1);
+    std::snprintf(buf, sizeof(buf), "SCENE %d / 8", scene + 1);
     drawText(buf, 10, 211, 0.38f, accent);
 }
 
