@@ -84,7 +84,9 @@ CORE_IMAGES = {
     "ending_witch": ("cutscenes/ending/art_witch.jpg", "cover"),
 
     # Phobos room / menu
-    "phobos_menu_body": ("menu/phobos/menu_body.png", "actor"),
+    "phobos_menu_body": ("menu/phobos/menu_body_opaque.png", "actor"),
+    "phobos_gameplay": ("menu/phobos/menu_body_opaque.png", "actor"),
+    "phobos_resistance": ("cutscenes/lines100/phobos_action.png", "actor"),
     "phobos_room_bg": ("cutscenes/phobos_room/background_v2.png", "cover"),
     "phobos_room_table": ("cutscenes/phobos_room/table_foreground.png", "fit"),
     "phobos_room_state0": ("cutscenes/phobos_room/states/state_00.png", "actor"),
