@@ -2232,8 +2232,10 @@ int main() {
 
     Mp3Player audio(0);
     Mp3Player voiceAudio(1);
+    Mp3Player sfxAudio(2);
     audio.init();
     voiceAudio.init();
+    sfxAudio.init();
 
     Game game;
     Mode mode=Mode::Intro;
@@ -2252,6 +2254,9 @@ int main() {
     int repeatDir=0,repeatTimer=0;
     bool shown100=false,shown200=false,shown300=false;
     bool guardiansRoute=false,phobosRoute=false;
+    bool horrorPieceMode=false;
+    bool openingTrackPending=true;
+    bool phobosRouteOpeningPending=false;
     bool quit=false;
 
     bool voiceTakeover=false;
@@ -2272,6 +2277,7 @@ int main() {
     bool loserStreakVoiceUsed=false;
     int observedPieceSerial=game.pieceSerial();
     int observedClearSerial=game.clearEventSerial();
+    int observedClearFxSerial=game.clearEventSerial();
     std::set<std::string> spawnReactionUsed;
     std::set<std::string> pauseReactionUsed;
 
@@ -2324,7 +2330,22 @@ int main() {
         if(pool.empty()) return;
         const int key=gameplayMusicKey();
         const bool phaseChanged = key!=manualMusicPhase;
-        if(phaseChanged) {
+
+        // Desktop source-of-truth: EVERY new game starts with
+        // Arrogant_Prince_of_the_Obsidian_Court (pool[0]), never a shuffled
+        // arcade/bonus track. Phobos 200+ likewise starts with its authored
+        // route theme once before returning to the broader music pool.
+        if(key==0 && openingTrackPending) {
+            manualMusicPhase=key;
+            manualMusicIndex=0;
+            openingTrackPending=false;
+            forceNew=true;
+        } else if(key==21 && phobosRouteOpeningPending) {
+            manualMusicPhase=key;
+            manualMusicIndex=0;
+            phobosRouteOpeningPending=false;
+            forceNew=true;
+        } else if(phaseChanged) {
             manualMusicPhase=key;
             manualMusicIndex=static_cast<int>(uiRng()%pool.size());
             forceNew=true;
@@ -2406,6 +2427,35 @@ int main() {
         return d(uiRng)<probability;
     };
 
+    auto chooseRoute=[&](int choice){
+        routeChoice=choice==1?1:0;
+        guardiansRoute=routeChoice==0;
+        phobosRoute=routeChoice==1;
+        horrorPieceMode=phobosRoute && roll(0.80f);
+        phobosRouteOpeningPending=phobosRoute;
+        shown300=false;
+        manualMusicPhase=-999;
+        codes.open=false;
+        codes.buffer.clear();
+        mode=Mode::Tetris;
+        startGameplayMusic(true);
+        if(guardiansRoute)
+            codeMessage("GUARDIANS — CLASSIC PIECES");
+        else
+            codeMessage(horrorPieceMode ? "PHOBOS — HORROR PIECES"
+                                        : "PHOBOS — CLASSIC PIECES");
+    };
+
+    auto typedWinner=[&]()->int {
+        const std::string& b=codes.buffer;
+        if(endsWith(b,"PHOBOS") || endsWith(b,"ФОБОС")) return 1;
+        if(endsWith(b,"GUARDIANS") || endsWith(b,"WITCH") ||
+           endsWith(b,"KANDRAKAR") || endsWith(b,"СТРАЖНИЦЫ") ||
+           endsWith(b,"ЧАРОДЕЙКИ") || endsWith(b,"ВИТЧ") ||
+           endsWith(b,"КОНДРАКАР")) return 0;
+        return -1;
+    };
+
     auto randomVoice=[&](const std::vector<std::string>& pool)->std::string {
         if(pool.empty()) return std::string();
         std::uniform_int_distribution<int> d(0,static_cast<int>(pool.size())-1);
@@ -2436,6 +2486,7 @@ int main() {
         pauseReactionUsed.clear();
         observedPieceSerial=std::max(0,game.pieceSerial()-1);
         observedClearSerial=game.clearEventSerial();
+        observedClearFxSerial=game.clearEventSerial();
     };
 
     auto maybeOpeningReaction=[&](){
@@ -2565,6 +2616,26 @@ int main() {
             pauseReactionUsed.insert(path);
     };
 
+    auto processClearFx=[&](){
+        const int serial=game.clearEventSerial();
+        if(serial==observedClearFxSerial) return;
+        observedClearFxSerial=serial;
+
+        const int cleared=game.lastCleared();
+        if(cleared<=0) return;
+
+        if(cleared==4 && !phobosRoute) {
+            // Original four-line clear: Heart portal SFX.
+            sfxAudio.play("romfs:/audio/sfx_heart_portal.mp3",false);
+        } else {
+            // Original 1–3 line clear, and Phobos-route clears including a
+            // Tetris: choose one of the two lightning sounds.
+            sfxAudio.play((uiRng()&1u)
+                          ? "romfs:/audio/sfx_line_clear_a.mp3"
+                          : "romfs:/audio/sfx_line_clear_b.mp3",false);
+        }
+    };
+
     auto processClearReaction=[&](){
         const int serial=game.clearEventSerial();
         if(serial==observedClearSerial) return;
@@ -2573,6 +2644,9 @@ int main() {
         const int cleared=game.lastCleared();
         const int kind=game.lastClearKind();
         if(cleared<=0) return;
+
+        if(game.lines()>=200 && (guardiansRoute || phobosRoute))
+            return;
 
         if(cleared==4) {
             const std::vector<std::string> willPool={
@@ -2763,6 +2837,7 @@ int main() {
 
         audio.update();
         voiceAudio.update();
+        sfxAudio.update();
 
         if(voiceTakeover && !voiceAudio.playing()) {
             bool followupStarted=false;
@@ -2805,6 +2880,9 @@ int main() {
                     shown300=false;
                     guardiansRoute=false;
                     phobosRoute=false;
+                    horrorPieceMode=false;
+                    openingTrackPending=true;
+                    phobosRouteOpeningPending=false;
                     codes=CodeKeyboardState();
                     voiceTakeover=false;
                     voiceAudio.stop();
@@ -2877,6 +2955,12 @@ int main() {
             }
 
         } else if(mode==Mode::Tetris) {
+            // Pending rows remain on the board for 10/24 frames exactly like
+            // the desktop build. Resolve one animation frame before accepting
+            // another piece input.
+            const bool clearingAtFrameStart=game.clearPending();
+            if(clearingAtFrameStart) game.tick(false);
+
             // React to the piece that is currently on screen before processing
             // this frame's controls.
             observeSpawn();
@@ -2944,7 +3028,7 @@ int main() {
                     }
                 }
             } else {
-                if(touchPressed && hitBox(touch,13,205,152,30)) {
+                if(touchPressed && !clearingAtFrameStart && hitBox(touch,13,205,152,30)) {
                     codes.open=true;
                     codes.buffer.clear();
                     codes.message="CAPS READY — TAP Q FOR +10";
@@ -2964,6 +3048,9 @@ int main() {
                             shown300=false;
                             guardiansRoute=false;
                             phobosRoute=false;
+                            horrorPieceMode=false;
+                            openingTrackPending=true;
+                            phobosRouteOpeningPending=false;
                             codes.vtdMode=false;
                             voiceTakeover=false;
                             voiceAudio.stop();
@@ -2974,7 +3061,7 @@ int main() {
                             resetRunReactions();
                             maybeOpeningReaction();
                         }
-                    } else if(!game.paused()) {
+                    } else if(!game.paused() && !clearingAtFrameStart && !game.clearPending()) {
                         handleHorizontalRepeat(game,down,held,repeatDir,repeatTimer);
 
                         // Up joins A/B as rotate. Y is now the ONLY hard drop.
@@ -2996,11 +3083,20 @@ int main() {
 
             // A lock can happen through gravity or Y hard-drop. Recreate the
             // original line-clear / Tetris reactions after the board event.
+            processClearFx();
             processClearReaction();
             observeSpawn();
             processGameOverReaction();
 
-            if(phobosRoute && game.gameOver()) {
+            if(guardiansRoute && game.lines()>=200 && game.gameOver()) {
+                codes.open=false;
+                voiceTakeover=false;
+                voiceAudio.stop();
+                sfxAudio.stop();
+                audio.setVolume(1.0f);
+                voiceFollowups.clear();
+                startCutscene(CutsceneKind::Ending,Mode::Menu);
+            } else if(phobosRoute && game.gameOver()) {
                 mode=Mode::PhobosRoom;
                 phobosState=0;
                 codes.open=false;
@@ -3054,11 +3150,17 @@ int main() {
                 if(down&(KEY_B|KEY_START)) {
                     mode=cutscene.returnMode;
                     if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-                    else if(mode==Mode::Tetris) startGameplayMusic(true);
+                    else if(mode==Mode::Menu) {
+                        menuIndex=0;
+                        setMusic("romfs:/audio/menu_1.mp3",true);
+                    } else if(mode==Mode::Tetris) startGameplayMusic(true);
                 } else if(elapsed>=30.65f && ((down&KEY_A)||touchPressed)) {
                     mode=cutscene.returnMode;
                     if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-                    else if(mode==Mode::Tetris) startGameplayMusic(true);
+                    else if(mode==Mode::Menu) {
+                        menuIndex=0;
+                        setMusic("romfs:/audio/menu_1.mp3",true);
+                    } else if(mode==Mode::Tetris) startGameplayMusic(true);
                 }
             } else {
                 const int total=cutscene.kind==CutsceneKind::Lines100?8:6;
@@ -3071,6 +3173,8 @@ int main() {
                            cutscene.returnMode==Mode::Tetris) {
                             mode=Mode::RouteChoice;
                             routeChoice=0;
+                            codes.open=false;
+                            codes.buffer.clear();
                             audio.play("romfs:/audio/music_winner_choice.mp3",true);
                         } else {
                             mode=cutscene.returnMode;
@@ -3083,15 +3187,46 @@ int main() {
             }
 
         } else if(mode==Mode::RouteChoice) {
-            if(down&(KEY_LEFT|KEY_RIGHT)) routeChoice=1-routeChoice;
-            if(down&KEY_A) {
-                guardiansRoute=(routeChoice==0);
-                phobosRoute=(routeChoice==1);
-                shown300=false;
-                manualMusicPhase=-999;
-                mode=Mode::Tetris;
-                startGameplayMusic(true);
-                codeMessage(guardiansRoute?"GUARDIANS ROUTE":"PHOBOS ROUTE");
+            if(codes.open) {
+                if(down&(KEY_B|KEY_START)) {
+                    codes.open=false;
+                    codes.buffer.clear();
+                }
+                if(touchPressed) {
+                    const std::string token=codeTouchToken(touch,codes.russian);
+                    if(token=="<CLEAR>") {
+                        codes.buffer.clear();
+                        codeMessage("BUFFER CLEARED");
+                    } else if(token=="<LANG>") {
+                        codes.russian=!codes.russian;
+                        codes.buffer.clear();
+                    } else if(token=="<CLOSE>") {
+                        codes.open=false;
+                        codes.buffer.clear();
+                    } else if(token=="<ENTER>") {
+                        const int typed=typedWinner();
+                        if(typed>=0) chooseRoute(typed);
+                        else {
+                            codeMessage("TYPE GUARDIANS / PHOBOS");
+                            codes.buffer.clear();
+                        }
+                    } else if(!token.empty()) {
+                        codes.buffer+=token;
+                        if(codes.buffer.size()>96)
+                            codes.buffer.erase(0,codes.buffer.size()-96);
+                        const int typed=typedWinner();
+                        if(typed>=0) chooseRoute(typed);
+                    }
+                }
+            } else {
+                if(down&(KEY_LEFT|KEY_RIGHT)) routeChoice=1-routeChoice;
+                if(down&KEY_A) chooseRoute(routeChoice);
+                if(touchPressed && hitBox(touch,12,177,296,39)) {
+                    codes.open=true;
+                    codes.buffer.clear();
+                    codes.message="TYPE GUARDIANS / PHOBOS";
+                    codes.messageFrames=240;
+                }
             }
 
         } else if(mode==Mode::PhobosRoom) {
@@ -3112,12 +3247,14 @@ int main() {
             else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio,eye);
             else if(mode==Mode::Settings) renderSettings(topTarget,bottom,game,settingsPage,settingsIndex,eye);
             else if(mode==Mode::Tetris) {
-                renderTetrisTop(game,topTarget,codes,guardiansRoute,phobosRoute,eye);
+                renderTetrisTop(game,topTarget,codes,guardiansRoute,phobosRoute,
+                                horrorPieceMode,eye);
                 renderTetrisBottom(game,bottom,audio,codes,guardiansRoute,phobosRoute);
             }
             else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(topTarget,bottom,cutsceneIndex);
             else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed,eye);
-            else if(mode==Mode::RouteChoice) renderRouteChoice(topTarget,bottom,routeChoice,eye);
+            else if(mode==Mode::RouteChoice)
+                renderRouteChoice(topTarget,bottom,routeChoice,codes,eye);
             else renderPhobosRoom(topTarget,bottom,phobosState,eye);
         };
 
@@ -3128,6 +3265,7 @@ int main() {
         C3D_FrameEnd(0);
     }
 
+    sfxAudio.shutdown();
     voiceAudio.shutdown();
     audio.shutdown();
     g_assets.unloadAll();
