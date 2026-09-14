@@ -1762,13 +1762,21 @@ std::string musicForMini(MiniType type) {
     }
 }
 
+std::vector<std::string> musicPoolForTetris(int lines) {
+    if(lines>=200)
+        return {"romfs:/audio/phase2_guardians.mp3"};
+    if(lines>=100)
+        return {
+            "romfs:/audio/phase1_1.mp3",
+            "romfs:/audio/phase1_2.mp3",
+            "romfs:/audio/phase1_3.mp3"
+        };
+    return {"romfs:/audio/phase0.mp3"};
+}
+
 std::string musicForTetris(int lines) {
-    if(lines>=200) return "romfs:/audio/phase2_guardians.mp3";
-    if(lines>=100) {
-        const int which=(lines/10)%3;
-        return std::string("romfs:/audio/phase1_")+char('1'+which)+".mp3";
-    }
-    return "romfs:/audio/phase0.mp3";
+    const std::vector<std::string> pool=musicPoolForTetris(lines);
+    return pool.empty()?std::string():pool.front();
 }
 
 } // namespace
