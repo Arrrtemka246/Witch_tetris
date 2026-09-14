@@ -21,8 +21,10 @@ APP_DESCRIPTION := Native Nintendo 3DS port
 APP_AUTHOR      := Arrrtemka246
 
 # CIA identity. Keep UNIQUE_ID stable: changing it would create another HOME Menu title.
-APP_UNIQUE_ID   := 0x57C17
-APP_PRODUCT_CODE:= CTR-H-WT3D
+# Use the reserved homebrew ID range to avoid collisions with retail titles.
+APP_UNIQUE_ID   := 0xFF717
+APP_PRODUCT_CODE:= CTR-P-WT3D
+CIA_PROCESS_NAME:= WITCH3DS
 CIA_RSF         := cia/app.rsf
 CIA_ICON_PNG    := cia/icon.png
 CIA_BANNER_PNG  := cia/banner.png
@@ -99,10 +101,6 @@ cia-meta:
 		-i "$(CIA_ICON_PNG)" \
 		-f visible,allow3d,nosavebackups \
 		-o "$(CIA_ICON)"
-	@bannertool makebanner \
-		-i "$(CIA_BANNER_PNG)" \
-		-a "$(CIA_BANNER_WAV)" \
-		-o "$(CIA_BANNER)"
 
 # Installable HOME Menu build for Luma3DS/FBI.
 cia: all cia-meta
@@ -114,8 +112,7 @@ cia: all cia-meta
 		-elf "$(TARGET).elf" \
 		-rsf "$(CIA_RSF)" \
 		-icon "$(CIA_ICON)" \
-		-banner "$(CIA_BANNER)" \
-		-DAPP_TITLE="$(APP_TITLE)" \
+		-DAPP_TITLE="$(CIA_PROCESS_NAME)" \
 		-DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" \
 		-DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)" \
 		-DAPP_ROMFS="$(CURDIR)/$(ROMFS)"
