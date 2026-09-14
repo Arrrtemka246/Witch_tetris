@@ -16,9 +16,9 @@ namespace {
 
 constexpr int BOARD_W = 10;
 constexpr int BOARD_H = 20;
-constexpr int CELL = 10;
-constexpr float BOARD_X = 150.0f;
-constexpr float BOARD_Y = 20.0f;
+constexpr int CELL = 11;
+constexpr float BOARD_X = 145.0f;
+constexpr float BOARD_Y = 10.0f;
 constexpr int LOCK_DELAY_FRAMES = 30;
 constexpr int SOFT_DROP_FRAMES = 2;
 constexpr int FPS = 60;
@@ -40,6 +40,10 @@ constexpr Point BASE_SHAPES[PIECE_COUNT][4] = {
 const char* PIECE_NAMES[PIECE_COUNT] = {"I","O","T","S","Z","J","L"};
 const char* PIECE_CHARACTERS[PIECE_COUNT] = {
     "CORNELIA", "BLUNK", "CALEB", "IRMA", "WILL", "TARANEE", "HAY LIN"
+};
+const char* PIECE_PORTRAITS[PIECE_COUNT] = {
+    "intro_cornelia", "intro_blunk", "intro_caleb", "intro_irma",
+    "intro_will", "intro_taranee", "intro_haylin"
 };
 
 u32 PIECE_COLORS[PIECE_COUNT];
@@ -315,22 +319,13 @@ private:
 
 class AssetBank {
 public:
-    bool load(const std::string& key, const std::string& path) {
-        C2D_SpriteSheet s = C2D_SpriteSheetLoad(path.c_str());
-        if (!s) {
-            std::printf("[gfx] missing %s (%s)\n", key.c_str(), path.c_str());
-            return false;
-        }
-        sheets_[key] = s;
-        return true;
+    bool has(const std::string& key) {
+        return ensure(key);
     }
 
-    bool has(const std::string& key) const {
-        return sheets_.find(key) != sheets_.end();
-    }
-
-    C2D_Image image(const std::string& key, int index = 0) const {
+    C2D_Image image(const std::string& key, int index = 0) {
         C2D_Image empty{};
+        if (!ensure(key)) return empty;
         auto it = sheets_.find(key);
         if (it == sheets_.end()) return empty;
         return C2D_SpriteSheetGetImage(it->second, index);
@@ -339,35 +334,60 @@ public:
     void unloadAll() {
         for (auto& kv : sheets_) C2D_SpriteSheetFree(kv.second);
         sheets_.clear();
-    }
-
-    void loadCore() {
-        load("cells", "romfs:/gfx/phase1_cells.t3x");
-        const char* names[] = {
-            "bg_menu","bg_phase0","bg_phase1","bg_phase2",
-            "intro_castle","intro_throne","intro_phobos","intro_phobos_cast",
-            "intro_will","intro_will_final","intro_irma","intro_taranee",
-            "intro_cornelia","intro_haylin","intro_caleb","intro_blunk",
-            "l100_phobos","l100_will","l100_irma","l100_taranee",
-            "l100_cornelia","l100_haylin","l100_caleb","l100_heart",
-            "l200_sheet_phobos","l200_sheet_heart",
-            "ending_phobos","ending_witch",
-            "phobos_menu_body","phobos_room_bg","phobos_room_table",
-            "phobos_room_state0","phobos_room_state1","phobos_room_state2",
-            "phobos_room_state3","phobos_room_state4","phobos_room_state5",
-            "mg_blunk","mg_cedric","mg_cornelia","mg_irma","mg_phobos",
-            "mg_will","mg_heart"
-        };
-        for (const char* n : names) load(n, std::string("romfs:/gfx/") + n + ".t3x");
-        for (int i = 0; i < 6; ++i) {
-            char name[32];
-            std::snprintf(name, sizeof(name), "l200_collapse_%d", i);
-            load(name, std::string("romfs:/gfx/") + name + ".t3x");
-        }
+        recent_.clear();
+        failed_.clear();
     }
 
 private:
+    static constexpr std::size_t MAX_RESIDENT_SHEETS = 12;
     std::map<std::string, C2D_SpriteSheet> sheets_;
+    std::vector<std::string> recent_;
+    std::map<std::string, bool> failed_;
+
+    std::string pathFor(const std::string& key) const {
+        if (key == "cells") return "romfs:/gfx/phase1_cells.t3x";
+        return std::string("romfs:/gfx/") + key + ".t3x";
+    }
+
+    void touch(const std::string& key) {
+        auto it = std::find(recent_.begin(), recent_.end(), key);
+        if (it != recent_.end()) recent_.erase(it);
+        recent_.push_back(key);
+    }
+
+    void evictOldest() {
+        if (recent_.empty()) return;
+        const std::string key = recent_.front();
+        recent_.erase(recent_.begin());
+        auto it = sheets_.find(key);
+        if (it != sheets_.end()) {
+            C2D_SpriteSheetFree(it->second);
+            sheets_.erase(it);
+        }
+    }
+
+    bool ensure(const std::string& key) {
+        auto it = sheets_.find(key);
+        if (it != sheets_.end()) {
+            touch(key);
+            return true;
+        }
+        if (failed_.find(key) != failed_.end()) return false;
+
+        while (sheets_.size() >= MAX_RESIDENT_SHEETS) evictOldest();
+
+        const std::string path = pathFor(key);
+        C2D_SpriteSheet sheet = C2D_SpriteSheetLoad(path.c_str());
+        if (!sheet) {
+            std::printf("[gfx] missing %s (%s)\n", key.c_str(), path.c_str());
+            failed_[key] = true;
+            return false;
+        }
+
+        sheets_[key] = sheet;
+        touch(key);
+        return true;
+    }
 };
 
 C2D_TextBuf g_textBuf = nullptr;
@@ -410,7 +430,7 @@ void drawFullscreenAsset(const std::string& key, float depth = 0.05f) {
 }
 
 void drawPanel(float x, float y, float w, float h, u32 border = 0) {
-    C2D_DrawRectSolid(x, y, 0.72f, w, h, color(5, 5, 12, 190));
+    C2D_DrawRectSolid(x, y, 0.72f, w, h, color(5, 5, 12, 145));
     if (border) {
         C2D_DrawRectSolid(x, y, 0.73f, w, 2, border);
         C2D_DrawRectSolid(x, y+h-2, 0.73f, w, 2, border);
@@ -455,7 +475,7 @@ void drawMiniPiece(int kind, float x, float y) {
     for (int slot = 0; slot < 4; ++slot) {
         const Point& p = SHAPES[kind][0][slot];
         const int encoded = kind * 16 + slot;
-        drawFragment(encoded, x + p.x * 7.0f, y + p.y * 7.0f, 7.0f, 0.82f);
+        drawFragment(encoded, x + p.x * 9.0f, y + p.y * 9.0f, 9.0f, 0.82f);
     }
 }
 
@@ -473,13 +493,13 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
     drawFullscreenAsset(phaseBackground(game.lines()));
-    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,75));
+    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,35));
 
-    drawPanel(5, 8, 132, 224, accent);
-    drawPanel(145, 15, 110, 210, accent);
-    drawPanel(265, 8, 130, 224, accent);
+    drawPanel(5, 8, 127, 224, accent);
+    drawPanel(140, 5, 120, 230, accent);
+    drawPanel(268, 8, 127, 224, accent);
 
-    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL, color(8,8,15,195));
+    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL, color(8,8,15,150));
     for (int x = 1; x < BOARD_W; ++x)
         C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.46f, 1, BOARD_H * CELL, grid);
     for (int y = 1; y < BOARD_H; ++y)
@@ -510,12 +530,12 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     drawText("HOLD", 16, 149, 0.38f, accent);
     if (game.holdKind() >= 0) drawMiniPiece(game.holdKind(), 35, 174);
 
-    drawText("NEXT", 278, 17, 0.40f, accent);
-    drawMiniPiece(game.nextKind(), 295, 45);
-    drawText(PIECE_CHARACTERS[game.nextKind()], 278, 87, 0.34f, text);
-    drawText("ORIGINAL", 278, 140, 0.32f, accent);
-    drawText("CHARACTER", 278, 156, 0.32f, accent);
-    drawText("FRAGMENTS", 278, 172, 0.32f, accent);
+    drawText("NEXT", 279, 17, 0.40f, accent);
+    drawAssetFit(PIECE_PORTRAITS[game.nextKind()], 276, 39, 110, 94, 0.76f, false, 0.72f);
+    drawMiniPiece(game.nextKind(), 316, 91);
+    drawText(PIECE_CHARACTERS[game.nextKind()], 279, 139, 0.34f, text);
+    drawText("ORIGINAL ART", 279, 180, 0.32f, accent);
+    drawText("VISIBLE MODE", 279, 197, 0.32f, accent);
 
     if (game.paused()) {
         drawPanel(95, 78, 210, 82, accent);
@@ -1110,8 +1130,6 @@ int main() {
     C3D_RenderTarget* top=C2D_CreateScreenTarget(GFX_TOP,GFX_LEFT);
     C3D_RenderTarget* bottom=C2D_CreateScreenTarget(GFX_BOTTOM,GFX_LEFT);
     g_textBuf=C2D_TextBufNew(8192);
-    g_assets.loadCore();
-
     Mp3Player audio;
     audio.init();
 
