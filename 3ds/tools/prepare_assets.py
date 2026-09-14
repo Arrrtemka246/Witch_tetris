@@ -96,14 +96,6 @@ CORE_IMAGES = {
     "phobos_room_state4": ("cutscenes/phobos_room/states/state_04.png", "actor"),
     "phobos_room_state5": ("cutscenes/phobos_room/states/state_05.png", "actor"),
 
-    # Minigames
-    "mg_blunk": ("minigames/blunk_face.png", "icon"),
-    "mg_cedric": ("minigames/cedric_face.png", "icon"),
-    "mg_cornelia": ("minigames/cornelia.png", "icon"),
-    "mg_irma": ("minigames/irma_face.png", "icon"),
-    "mg_phobos": ("minigames/phobos_face.png", "icon"),
-    "mg_will": ("minigames/will_face.png", "icon"),
-    "mg_heart": ("effects/heart_kandrakar.png", "icon"),
 }
 
 CORE_AUDIO = {
@@ -117,11 +109,6 @@ CORE_AUDIO = {
     "phase2_guardians.mp3": "audio/collection/witch_ending.mp3",
     "phase2_phobos.mp3": "audio/music/phobos_route/Phobos_main_theme_3_phase.mp3",
     "phobos_room.mp3": "audio/music/phobos_room/PhobosthemeDark.mp3",
-    "minigame_arcade.mp3": "audio/minigames/arcade_1.mp3",
-    "minigame_snake.mp3": "audio/minigames/blunk_snake.mp3",
-    "minigame_treasure.mp3": "audio/minigames/arcade_2.mp3",
-    "minigame_stone.mp3": "audio/minigames/arcade_3.mp3",
-    "minigame_water.mp3": "audio/minigames/arcade_4.mp3",
 }
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
