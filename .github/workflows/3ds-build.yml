@@ -67,3 +67,12 @@ jobs:
           name: witch-tetris-3ds-cia
           path: 3ds/witch_tetris_3ds.cia
           if-no-files-found: error
+
+      - name: Upload crash symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: witch-tetris-3ds-symbols
+          path: |
+            3ds/witch_tetris_3ds.elf
+            3ds/witch_tetris_3ds.map
+          if-no-files-found: error
