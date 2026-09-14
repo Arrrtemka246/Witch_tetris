@@ -16,9 +16,9 @@ namespace {
 
 constexpr int BOARD_W = 10;
 constexpr int BOARD_H = 20;
-constexpr float CELL = 11.7f;
-constexpr float BOARD_X = 141.5f;
-constexpr float BOARD_Y = 3.0f;
+constexpr float CELL = 11.9f;
+constexpr float BOARD_X = 140.5f;
+constexpr float BOARD_Y = 1.0f;
 constexpr int LOCK_DELAY_FRAMES = 30;
 constexpr int SOFT_DROP_FRAMES = 2;
 constexpr int FPS = 60;
@@ -26,6 +26,7 @@ constexpr int FPS = 60;
 struct Point { int x; int y; };
 
 enum PieceKind : int { I = 0, O, T, S, Z, J, L, PIECE_COUNT };
+enum class FigureFallMode { Classic, Phobos };
 
 constexpr Point BASE_SHAPES[PIECE_COUNT][4] = {
     {{0,0},{0,1},{0,2},{0,3}},
@@ -92,7 +93,8 @@ struct Piece {
 
 class Game {
 public:
-    Game() : rng_(static_cast<unsigned int>(osGetTime())) { reset(); }
+    Game() : rng_(static_cast<unsigned int>(osGetTime())),
+             fallMode_(FigureFallMode::Classic) { reset(); }
 
     void reset() {
         for (auto& row : board_) row.fill(-1);
@@ -105,6 +107,7 @@ public:
         gameOver_ = false;
         paused_ = false;
         history_.clear();
+        classicBag_.clear();
         pieceSerial_ = 0;
         lastSeen_.fill(0);
         nextKind_ = randomPiece();
@@ -113,6 +116,15 @@ public:
 
     void togglePause() { if (!gameOver_) paused_ = !paused_; }
     bool paused() const { return paused_; }
+
+    void setFallMode(FigureFallMode mode) {
+        fallMode_ = mode;
+        classicBag_.clear();
+    }
+    FigureFallMode fallMode() const { return fallMode_; }
+    const char* fallModeLabel() const {
+        return fallMode_ == FigureFallMode::Classic ? "CLASSIC" : "PHOBOS";
+    }
     bool gameOver() const { return gameOver_; }
     int score() const { return score_; }
     int lines() const { return lines_; }
@@ -227,7 +239,9 @@ private:
     int groundedFrames_ = 0;
 
     std::mt19937 rng_;
+    FigureFallMode fallMode_;
     std::vector<int> history_;
+    std::vector<int> classicBag_;
     std::array<int, PIECE_COUNT> lastSeen_{};
     int pieceSerial_ = 0;
 
@@ -237,6 +251,19 @@ private:
     }
 
     int randomPiece() {
+        // Original desktop setting: CLASSIC uses an independent seven-bag.
+        // PHOBOS keeps the controlled-chaos drought/repeat weighting.
+        if (fallMode_ == FigureFallMode::Classic) {
+            if (classicBag_.empty()) {
+                classicBag_.reserve(PIECE_COUNT);
+                for (int k = 0; k < PIECE_COUNT; ++k) classicBag_.push_back(k);
+                std::shuffle(classicBag_.begin(), classicBag_.end(), rng_);
+            }
+            const int pick = classicBag_.back();
+            classicBag_.pop_back();
+            return pick;
+        }
+
         std::array<float, PIECE_COUNT> weights{};
         float total = 0.0f;
         const int recent = history_.empty() ? -1 : history_.back();
