@@ -7,10 +7,12 @@ on:
       - port/3ds-native
     paths:
       - '3ds/**'
+      - 'assets/**'
       - '.github/workflows/3ds-build.yml'
   pull_request:
     paths:
       - '3ds/**'
+      - 'assets/**'
       - '.github/workflows/3ds-build.yml'
 
 jobs:
@@ -24,9 +26,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install 3DS libraries
-        run: dkp-pacman -S --needed --noconfirm 3ds-dev
+        run: |
+          dkp-pacman -S --needed --noconfirm 3ds-dev 3ds-mpg123
+          python3 -m pip install --break-system-packages Pillow
 
-      - name: Build .3dsx
+      - name: Build content-enabled .3dsx
         run: make -C 3ds -j2
 
       - name: Upload homebrew build
