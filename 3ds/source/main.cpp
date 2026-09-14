@@ -429,13 +429,13 @@ void drawFullscreenAsset(const std::string& key, float depth = 0.05f) {
     drawAssetFit(key, 0, 0, 400, 240, depth, true);
 }
 
-void drawPanel(float x, float y, float w, float h, u32 border = 0) {
-    C2D_DrawRectSolid(x, y, 0.72f, w, h, color(5, 5, 12, 145));
+void drawPanel(float x, float y, float w, float h, u32 border = 0, float depth = 0.30f) {
+    C2D_DrawRectSolid(x, y, depth, w, h, color(5, 5, 12, 145));
     if (border) {
-        C2D_DrawRectSolid(x, y, 0.73f, w, 2, border);
-        C2D_DrawRectSolid(x, y+h-2, 0.73f, w, 2, border);
-        C2D_DrawRectSolid(x, y, 0.73f, 2, h, border);
-        C2D_DrawRectSolid(x+w-2, y, 0.73f, 2, h, border);
+        C2D_DrawRectSolid(x, y, depth + 0.01f, w, 2, border);
+        C2D_DrawRectSolid(x, y+h-2, depth + 0.01f, w, 2, border);
+        C2D_DrawRectSolid(x, y, depth + 0.01f, 2, h, border);
+        C2D_DrawRectSolid(x+w-2, y, depth + 0.01f, 2, h, border);
     }
 }
 
@@ -538,11 +538,11 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     drawText("VISIBLE MODE", 279, 197, 0.32f, accent);
 
     if (game.paused()) {
-        drawPanel(95, 78, 210, 82, accent);
+        drawPanel(95, 78, 210, 82, accent, 0.85f);
         drawText("PAUSED", 145, 95, 0.68f, accent);
         drawText("SELECT: resume", 126, 127, 0.40f, text);
     } else if (game.gameOver()) {
-        drawPanel(80, 72, 240, 98, color(225,75,95));
+        drawPanel(80, 72, 240, 98, color(225,75,95), 0.85f);
         drawText("GAME OVER", 120, 91, 0.67f, color(245,100,115));
         drawText("A: restart", 145, 124, 0.43f, text);
         drawText("START: menu", 134, 145, 0.36f, text);
@@ -651,7 +651,7 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int scene) {
     if (scene == 0) {
         drawFullscreenAsset("intro_castle");
         C2D_DrawRectSolid(0, 0, 0.3f, 400, 240, color(0,0,0,50));
-        drawPanel(36, 162, 328, 58, accent);
+        drawPanel(36, 162, 328, 58, accent, 0.80f);
         drawText("MERIDIAN. THE PALACE OF PHOBOS.", 55, 178, 0.42f, text);
     } else {
         drawFullscreenAsset("intro_throne");
@@ -660,7 +660,7 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int scene) {
         if (scene == 1) {
             drawAssetFit("intro_will", 30, 55, 135, 165, 0.45f);
             drawAssetFit("intro_phobos", 250, 28, 140, 195, 0.44f);
-            drawPanel(55, 174, 290, 50, accent);
+            drawPanel(55, 174, 290, 50, accent, 0.80f);
             drawText("WILL: IT'S OVER, PHOBOS!", 77, 190, 0.41f, text);
         } else if (scene == 2) {
             const char* keys[] = {"intro_will","intro_irma","intro_taranee","intro_cornelia","intro_haylin","intro_caleb","intro_blunk"};
@@ -669,20 +669,20 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int scene) {
                 drawAssetFit(keys[i], x, 85 + (i%2)*12, 62, 130, 0.43f);
             }
             drawAssetFit("intro_phobos", 150, 18, 100, 125, 0.42f);
-            drawPanel(40, 182, 320, 43, accent);
+            drawPanel(40, 182, 320, 43, accent, 0.80f);
             drawText("THE GUARDIANS REFUSE TO SURRENDER.", 62, 196, 0.37f, text);
         } else if (scene == 3) {
             drawAssetFit("intro_will_final", 130, 28, 140, 190, 0.48f);
-            drawPanel(55, 176, 290, 48, accent);
+            drawPanel(55, 176, 290, 48, accent, 0.80f);
             drawText("THE CURSE CHANGES THEIR FORMS...", 73, 191, 0.38f, text);
         } else if (scene == 4) {
             drawAssetFit("intro_phobos_cast", 93, 18, 214, 205, 0.47f);
-            drawPanel(65, 180, 270, 43, accent);
+            drawPanel(65, 180, 270, 43, accent, 0.80f);
             drawText("PHOBOS: NOW WE BEGIN.", 103, 194, 0.42f, text);
         } else {
             drawFullscreenAsset("bg_phase0");
             C2D_DrawRectSolid(0,0,0.3f,400,240,color(0,0,0,105));
-            drawPanel(52, 72, 296, 100, accent);
+            drawPanel(52, 72, 296, 100, accent, 0.80f);
             drawText("W.I.T.C.H. TETRIS", 92, 93, 0.70f, accent);
             drawText("THE GAME IS YOUR PRISON.", 93, 132, 0.41f, text);
         }
@@ -751,7 +751,7 @@ void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const Cutsc
         drawFullscreenAsset(cs.frame%2==0?"ending_phobos":"ending_witch",0.12f);
         C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,20));
     }
-    drawPanel(8,5,384,29,accent);
+    drawPanel(8,5,384,29,accent,0.80f);
     drawText(title,20,12,0.38f,text);
 
     C2D_TargetClear(bottom,color(12,9,20));
@@ -915,7 +915,7 @@ public:
         else renderWater();
 
         if(over_) {
-            drawPanel(82,82,236,83,color(230,80,100));
+            drawPanel(82,82,236,83,color(230,80,100),0.85f);
             drawText("GAME OVER",125,100,0.63f,color(245,100,120));
             drawText("A — retry",154,135,0.40f,text);
         }
@@ -1070,7 +1070,7 @@ void renderPhobosRoom(C3D_RenderTarget* top,C3D_RenderTarget* bottom,int state) 
     std::snprintf(key,sizeof(key),"phobos_room_state%d",state%6);
     drawAssetFit(key,103,25,194,190,0.52f);
     drawAssetFit("phobos_room_table",0,142,400,98,0.70f,true);
-    drawPanel(15,12,190,42,accent);
+    drawPanel(15,12,190,42,accent,0.80f);
     drawText("PHOBOS ROOM",28,24,0.47f,text);
 
     C2D_TargetClear(bottom,color(11,7,18));
