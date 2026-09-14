@@ -237,7 +237,8 @@ def remove_border_light(im: Image.Image, threshold: int = 238) -> Image.Image:
     return im
 
 def build_phobos_room_poses() -> None:
-    sheet_path = ASSETS / "cutscenes" / "phobos_room" / "phobos_seated_poses.png"
+    room_dir = ASSETS / "cutscenes" / "phobos_room"
+    sheet_path = room_dir / "phobos_seated_poses.png"
     if not sheet_path.exists():
         print(f"[3ds assets] seated Phobos sheet missing: {sheet_path}", file=sys.stderr)
         return
@@ -265,6 +266,27 @@ def build_phobos_room_poses() -> None:
                 pose.save(out)
                 to_t3x(out, GFX / f"phobos_room_pose{pose_index}.t3x", "rgba5551")
                 pose_index += 1
+
+    # The desktop v6.37.1 scene does NOT place table_foreground.png over the
+    # character. background_v2 already contains the final desk/window geometry;
+    # after drawing Phobos it simply repaints the lower part of that same
+    # composite from y=700 on a 1080px canvas. Build the identical foreground
+    # mask at 400x240 so the desk can never drift or scale differently on 3DS.
+    bg_path = room_dir / "background_v2.png"
+    if bg_path.exists():
+        with Image.open(bg_path) as bg:
+            bg = ImageOps.fit(bg.convert("RGBA"), (400, 240),
+                              method=Image.Resampling.LANCZOS)
+            table_top = int(round(240 * 700 / 1080))
+            foreground = Image.new("RGBA", bg.size, (0, 0, 0, 0))
+            foreground.alpha_composite(
+                bg.crop((0, table_top, bg.width, bg.height)),
+                (0, table_top)
+            )
+            out = WORK / "core" / "phobos_room_foreground.png"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            foreground.save(out)
+            to_t3x(out, GFX / "phobos_room_foreground.t3x", "rgba5551")
 
 def build_story_frames() -> None:
     # Six ready-made Phobos collapse frames are small enough to keep resident.
