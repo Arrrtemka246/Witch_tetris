@@ -96,7 +96,10 @@ struct Piece {
 class Game {
 public:
     Game() : rng_(static_cast<unsigned int>(osGetTime())),
-             fallMode_(FigureFallMode::Classic) { reset(); }
+             fallMode_(FigureFallMode::Classic) {
+        enabled_.fill(true);
+        reset();
+    }
 
     void reset() {
         for (auto& row : board_) row.fill(-1);
@@ -129,6 +132,21 @@ public:
     FigureFallMode fallMode() const { return fallMode_; }
     const char* fallModeLabel() const {
         return fallMode_ == FigureFallMode::Classic ? "CLASSIC" : "PHOBOS";
+    }
+    bool pieceEnabled(int kind) const {
+        return kind >= 0 && kind < PIECE_COUNT ? enabled_[kind] : false;
+    }
+    int enabledPieceCount() const {
+        int n = 0;
+        for (bool v : enabled_) if (v) ++n;
+        return n;
+    }
+    bool setPieceEnabled(int kind, bool value) {
+        if (kind < 0 || kind >= PIECE_COUNT) return false;
+        if (!value && enabled_[kind] && enabledPieceCount() <= 1) return false;
+        enabled_[kind] = value;
+        classicBag_.clear();
+        return true;
     }
     bool gameOver() const { return gameOver_; }
     int score() const { return score_; }
@@ -253,6 +271,7 @@ private:
 
     std::mt19937 rng_;
     FigureFallMode fallMode_;
+    std::array<bool, PIECE_COUNT> enabled_{};
     std::vector<int> history_;
     std::vector<int> classicBag_;
     std::array<int, PIECE_COUNT> lastSeen_{};
@@ -264,12 +283,20 @@ private:
     }
 
     int randomPiece() {
-        // Original desktop setting: CLASSIC uses an independent seven-bag.
-        // PHOBOS keeps the controlled-chaos drought/repeat weighting.
+        std::vector<int> candidates;
+        for (int k = 0; k < PIECE_COUNT; ++k)
+            if (enabled_[k]) candidates.push_back(k);
+        if (candidates.empty()) return I; // setPieceEnabled() prevents this.
+
         if (fallMode_ == FigureFallMode::Classic) {
+            bool bagValid = !classicBag_.empty();
+            if (bagValid) {
+                for (int k : classicBag_)
+                    if (!enabled_[k]) { bagValid = false; break; }
+            }
+            if (!bagValid) classicBag_.clear();
             if (classicBag_.empty()) {
-                classicBag_.reserve(PIECE_COUNT);
-                for (int k = 0; k < PIECE_COUNT; ++k) classicBag_.push_back(k);
+                classicBag_ = candidates;
                 std::shuffle(classicBag_.begin(), classicBag_.end(), rng_);
             }
             const int pick = classicBag_.back();
@@ -284,8 +311,8 @@ private:
             history_[history_.size()-1] == history_[history_.size()-2] &&
             history_[history_.size()-2] == history_[history_.size()-3];
 
-        for (int k = 0; k < PIECE_COUNT; ++k) {
-            if (triple && k == recent) {
+        for (int k : candidates) {
+            if (triple && k == recent && candidates.size() > 1) {
                 weights[k] = 0.0f;
                 continue;
             }
@@ -299,13 +326,14 @@ private:
             total += w;
         }
 
+        if (total <= 0.0f) return candidates.front();
         std::uniform_real_distribution<float> dist(0.0f, total);
         float pick = dist(rng_);
-        for (int k = 0; k < PIECE_COUNT; ++k) {
+        for (int k : candidates) {
             pick -= weights[k];
             if (pick <= 0.0f && weights[k] > 0.0f) return k;
         }
-        return L;
+        return candidates.back();
     }
 
     bool collides(int x, int y, int rot) const {
