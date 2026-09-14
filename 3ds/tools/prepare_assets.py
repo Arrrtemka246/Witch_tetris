@@ -224,14 +224,14 @@ def build_sequence_atlas(key: str, files: list[Path], max_h: int = 150) -> None:
 def build_ending_assets() -> None:
     ready = ASSETS / "cutscenes" / "ending" / "ready"
     picks = {
-        "ending_heart": [0,4,8,12,16,20],
+        "ending_heart": list(range(24)),
         "ending_will": [0,1,2,3,4,5],
         "ending_irma": [0,1,2,3,4,5],
         "ending_taranee": [0,1,2,3,4,5],
         "ending_haylin": [0,1,2,3,4,5],
         "ending_blunk": [0,1,2,3,4,5],
-        "ending_caleb": [0,2,4,6,8,10],
-        "ending_cornelia": [0,2,4,6,8,10],
+        "ending_caleb": [0,1,2,3,4,5],
+        "ending_cornelia": [0,1,2,3,4,5],
         "ending_enemies": [0,1,2,3,4,5],
         "ending_bats": [0,1,2,3,4,5],
     }
