@@ -29,9 +29,25 @@ jobs:
         run: |
           dkp-pacman -S --needed --noconfirm 3ds-dev 3ds-mpg123
           apt-get update -qq
-          apt-get install -y -qq python3-pil
-          command -v makerom
-          command -v bannertool
+          apt-get install -y -qq python3-pil cmake g++ git
+
+      - name: Build CIA packaging tools
+        run: |
+          set -eux
+
+          git clone --depth 1 https://github.com/3DSGuy/Project_CTR.git /tmp/Project_CTR
+          make -C /tmp/Project_CTR/makerom deps
+          make -C /tmp/Project_CTR/makerom -j2
+          install -m 0755 /tmp/Project_CTR/makerom/bin/makerom /usr/local/bin/makerom
+
+          git clone --depth 1 https://github.com/carstene1ns/3ds-bannertool.git /tmp/3ds-bannertool
+          sed -i 's/cmake_minimum_required(VERSION 3.28)/cmake_minimum_required(VERSION 3.25)/' /tmp/3ds-bannertool/CMakeLists.txt
+          cmake -S /tmp/3ds-bannertool -B /tmp/3ds-bannertool/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/3ds-bannertool/build --parallel 2
+          install -m 0755 /tmp/3ds-bannertool/build/bannertool /usr/local/bin/bannertool
+
+          makerom --help >/dev/null 2>&1 || true
+          bannertool --help >/dev/null
 
       - name: Build content-enabled 3DSX + CIA
         run: make -C 3ds -j2 cia
