@@ -2372,11 +2372,21 @@ int main() {
             }
 
         } else if(mode==Mode::Tetris) {
+            // React to the piece that is currently on screen before processing
+            // this frame's controls.
+            observeSpawn();
+            processGameOverReaction();
+            processLongPauseHint();
+
+            // Shoulder buttons are dedicated music controls.
+            if(down&KEY_L) stepGameplayMusic(-1);
+            if(down&KEY_R) stepGameplayMusic(+1);
+
             if(codes.open) {
                 if(down&(KEY_START|KEY_SELECT)) {
                     codes.open=false;
                     codes.buffer.clear();
-                    game.togglePause();
+                    togglePauseWithReaction();
                 } else if(down&KEY_B) {
                     codes.open=false;
                     codes.buffer.clear();
@@ -2402,8 +2412,7 @@ int main() {
                         if(!activateTypedCode()) codeMessage("UNKNOWN CODE");
                         codes.buffer.clear();
                     } else if(token=="Q" && !codes.russian) {
-                        // The touch keyboard is permanently CAPS, so tapping Q is
-                        // the 3DS equivalent of the desktop Shift+Q developer cheat.
+                        // CAPS Q is the 3DS equivalent of desktop Shift+Q.
                         game.developerAddLines(10);
                         codeMessage("SHIFT+Q  +10 LINES");
                     } else if(!token.empty()) {
@@ -2420,8 +2429,11 @@ int main() {
                     codes.message="CAPS READY — TAP Q FOR +10";
                     codes.messageFrames=240;
                 } else {
-                    if(down&(KEY_START|KEY_SELECT)) game.togglePause();
+                    if(down&(KEY_START|KEY_SELECT))
+                        togglePauseWithReaction();
+
                     if(game.gameOver()) {
+                        processGameOverReaction();
                         if(down&KEY_B) {
                             goMenu();
                         } else if(down&KEY_A) {
@@ -2429,18 +2441,39 @@ int main() {
                             shown100=false;
                             shown200=false;
                             codes.vtdMode=false;
-                            setMusic(musicForTetris(0),true);
+                            voiceTakeover=false;
+                            voiceFollowups.clear();
+                            resumeAfterVoice.clear();
+                            manualMusicPhase=-999;
+                            audio.play(phaseOrSecretMusic(),true);
+                            resetRunReactions();
+                            maybeOpeningReaction();
                         }
                     } else if(!game.paused()) {
                         handleHorizontalRepeat(game,down,held,repeatDir,repeatTimer);
-                        if(down&KEY_A) game.rotate(+1);
-                        if(down&KEY_B) game.rotate(-1);
-                        if(down&KEY_X) game.hold();
-                        if((down&KEY_UP)||(down&KEY_Y)) game.hardDrop();
-                        game.tick((held&KEY_DOWN)!=0);
+
+                        // Up joins A/B as rotate. Y is now the ONLY hard drop.
+                        if(down&KEY_A) rotateWithReaction(+1);
+                        if(down&KEY_B) rotateWithReaction(-1);
+                        if(down&KEY_UP) rotateWithReaction(+1);
+                        if(down&KEY_X) holdWithReaction();
+
+                        bool hardDropped=false;
+                        if(down&KEY_Y) {
+                            game.hardDrop();
+                            hardDropped=true;
+                        }
+                        if(!hardDropped)
+                            game.tick((held&KEY_DOWN)!=0);
                     }
                 }
             }
+
+            // A lock can happen through gravity or Y hard-drop. Recreate the
+            // original line-clear / Tetris reactions after the board event.
+            processClearReaction();
+            observeSpawn();
+            processGameOverReaction();
 
             if(!voiceTakeover)
                 setMusic(phaseOrSecretMusic(),true);
