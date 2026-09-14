@@ -2213,15 +2213,11 @@ int main() {
         if(endsWith(b,"VTD") || endsWith(b,"ВТД") || endsWith(b,"ВАЛЕНТИН")) {
             codes.vtdMode=!codes.vtdMode;
             voiceTakeover=false;
+            voiceFollowups.clear();
             resumeAfterVoice.clear();
-            if(codes.vtdMode) {
-                vtdTrack=((osGetTime()/1000)&1)?"romfs:/audio/vtd_1.mp3":"romfs:/audio/vtd_2.mp3";
-                audio.play(vtdTrack,true);
-                codeMessage("VTD MODE ON");
-            } else {
-                audio.play(musicForTetris(game.lines()),true);
-                codeMessage("VTD MODE OFF");
-            }
+            manualMusicPhase=-999;
+            audio.play(phaseOrSecretMusic(),true);
+            codeMessage(codes.vtdMode?"VTD MODE ON":"VTD MODE OFF");
             codes.buffer.clear();
             return true;
         }
@@ -2258,14 +2254,23 @@ int main() {
         audio.update();
 
         if(voiceTakeover && !audio.playing()) {
-            voiceTakeover=false;
-            if(!resumeAfterVoice.empty()) {
-                const std::string resume=resumeAfterVoice;
-                resumeAfterVoice.clear();
-                audio.play(resume,true);
+            bool followupStarted=false;
+            while(!voiceFollowups.empty() && !followupStarted) {
+                const std::string next=voiceFollowups.front();
+                voiceFollowups.pop_front();
+                followupStarted=audio.play(next,false);
+            }
+            if(!followupStarted) {
+                voiceTakeover=false;
+                if(!resumeAfterVoice.empty()) {
+                    const std::string resume=resumeAfterVoice;
+                    resumeAfterVoice.clear();
+                    audio.play(resume,true);
+                }
             }
         }
 
+        if(reactionCooldown>0) --reactionCooldown;
         if(codes.messageFrames>0) --codes.messageFrames;
         if(codes.matrixFrames>0) --codes.matrixFrames;
         if(codes.jetixFrames>0) --codes.jetixFrames;
@@ -2292,8 +2297,14 @@ int main() {
                     shown100=false;
                     shown200=false;
                     codes=CodeKeyboardState();
+                    voiceTakeover=false;
+                    voiceFollowups.clear();
+                    resumeAfterVoice.clear();
+                    manualMusicPhase=-999;
                     mode=Mode::Tetris;
-                    setMusic(musicForTetris(0),true);
+                    audio.play(phaseOrSecretMusic(),true);
+                    resetRunReactions();
+                    maybeOpeningReaction();
                 } else if(menuIndex==1) {
                     mode=Mode::Settings;
                 } else if(menuIndex==2) {
@@ -2335,6 +2346,12 @@ int main() {
                     } else if(token=="<LANG>") {
                         codes.russian=!codes.russian;
                         codes.buffer.clear();
+                        if(!reactionLayoutDone) {
+                            reactionLayoutDone=true;
+                            if(roll(0.08f))
+                                playReaction("romfs:/audio/react_layout.mp3",
+                                             "PHOBOS — LAYOUT",false);
+                        }
                     } else if(token=="<CLOSE>") {
                         codes.open=false;
                         codes.buffer.clear();
