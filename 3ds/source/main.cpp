@@ -800,9 +800,14 @@ std::string introAssetKey(int kind, const char* stage) {
 }
 
 struct CutsceneState {
-    CutsceneKind kind = CutsceneKind::Lines100;
-    int frame = 0;
-    Mode returnMode = Mode::CutsceneMenu;
+    CutsceneKind kind;
+    int frame;
+    Mode returnMode;
+    u64 startedMs;
+
+    CutsceneState()
+        : kind(CutsceneKind::Lines100), frame(0),
+          returnMode(Mode::CutsceneMenu), startedMs(0) {}
 };
 
 const char* MENU_ITEMS[] = {
@@ -966,6 +971,177 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const IntroSta
     drawText(buf, 10, 211, 0.38f, accent);
 }
 
+
+float clamp01(float v) {
+    return std::max(0.0f, std::min(1.0f, v));
+}
+
+float lerpf(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+void drawAtlasFrame(const std::string& key, int index,
+                    float x, float y, float w, float h, float depth = 0.55f,
+                    float alpha = 1.0f) {
+    if (!g_assets.has(key)) return;
+    drawImageFit(g_assets.image(key, index), x, y, w, h, depth, false, alpha);
+}
+
+void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
+    const u32 text = color(244,222,255);
+    const u32 accent = color(205,140,255);
+
+    C2D_TargetClear(top, color(0,0,0));
+    C2D_SceneBegin(top);
+
+    if (t < 14.0f) {
+        // Authored ending.py timeline: animated Heart + scrolling credits, 0–14 s.
+        const int heartFrame = static_cast<int>(t * 8.0f) % 6;
+        drawAtlasFrame("ending_heart", heartFrame, 12, 38, 135, 180, 0.58f);
+
+        static const char* credits[] = {
+            "W.I.T.C.H. TETRIS",
+            "DESIGN: CHAT GPT",
+            "MUSIC / SOUND: SUNO",
+            "DEVELOPMENT: CHAT GPT",
+            "SPECIAL THANKS",
+            "W.I.T.C.H. ANIMATED SERIES",
+            "JETIX",
+            "AND EVERYONE WHO REMEMBERS",
+            "THIS STORY",
+            "FAN PROJECT — NON-COMMERCIAL",
+            "@art3m_k_a"
+        };
+        constexpr int creditCount = sizeof(credits) / sizeof(credits[0]);
+        const float totalTravel = 340.0f + creditCount * 25.0f;
+        const float startY = 225.0f - totalTravel * clamp01(t / 14.0f);
+        for (int i=0;i<creditCount;++i) {
+            const float y = startY + i * 25.0f;
+            if (y > 10.0f && y < 235.0f)
+                drawText(credits[i], 153, y, i==0 ? 0.38f : 0.27f, i==0 ? accent : text);
+        }
+    } else if (t < 24.0f) {
+        // 14–24 s: the same battle beats as ending.py.
+        C2D_DrawRectSolid(0,0,0.10f,400,240,color(8,5,13));
+        const float bt = t - 14.0f;
+
+        if (t < 20.0f) {
+            for (int i=0;i<6;++i) {
+                const float x = 370.0f - bt * 28.0f + (i%3)*34.0f;
+                const float y = 54.0f + (i/3)*92.0f;
+                const float alpha = 1.0f - clamp01((t - 19.3f) / 0.7f);
+                drawAtlasFrame("ending_enemies", i, x, y, 52, 70, 0.46f, alpha);
+            }
+            for (int i=0;i<6;++i) {
+                const float x = 360.0f - std::fmod(bt*75.0f + i*48.0f, 330.0f);
+                const float y = 42.0f + (i%3)*35.0f;
+                drawAtlasFrame("ending_bats", (static_cast<int>(t*12)+i)%6,
+                               x, y, 34, 28, 0.50f);
+            }
+        }
+
+        if (t >= 20.0f && t < 22.0f) {
+            const float alpha = 1.0f - clamp01((t - 21.65f) / 0.35f);
+            drawAtlasFrame("ending_cedric", 0, 293, 40, 92, 183, 0.52f, alpha);
+        }
+
+        const char* actorKeys[] = {
+            "ending_will","ending_irma","ending_taranee",
+            "ending_caleb","ending_haylin","ending_cornelia"
+        };
+        const float fightX[] = {48,102,154,212,267,321};
+        const float finalX[] = {72,124,176,232,286,338};
+        for (int i=0;i<6;++i) {
+            float x=fightX[i], y=80 + (i%2)*18;
+            int pose=1;
+            if (t < 18.0f) {
+                const float p=clamp01((t - 16.6f - i*0.12f)/1.0f);
+                x=lerpf(-55.0f,fightX[i],p);
+                pose=1;
+            } else if (t < 22.0f) {
+                x=fightX[i] + std::sin((t-18.0f)*9.0f+i)*7.0f;
+                y-=std::abs(std::sin(t*7.0f+i))*8.0f;
+                pose=(static_cast<int>((t-18.0f)*5.0f)+i)%6;
+            } else {
+                float p=clamp01((t-22.0f)/2.0f);
+                p=p*p*(3.0f-2.0f*p);
+                x=lerpf(fightX[i],finalX[i],p);
+                y=lerpf(y,91.0f+(i%2)*10.0f,p);
+                pose=0;
+            }
+            drawAtlasFrame(actorKeys[i], pose, x-26, y, 52, 132,
+                           i==3 ? 0.61f : 0.60f);
+        }
+
+        float bx=92, by=150;
+        int bpose=0;
+        if (t < 18.0f) {
+            bx=260.0f-(t-14.0f)*45.0f;
+            bpose=static_cast<int>(t*9.0f)%6;
+        } else if (t < 22.0f) {
+            bx=56; bpose=3;
+        } else {
+            const float p=clamp01((t-22.0f)/2.0f);
+            bx=lerpf(56,118,p); bpose=0;
+        }
+        drawAtlasFrame("ending_blunk", bpose, bx-24, by, 48, 72, 0.62f);
+
+        if (t > 21.55f && t < 22.0f) {
+            const float p=(t-21.55f)/0.45f;
+            const int a=static_cast<int>(115.0f*std::sin(p*3.1415926f));
+            C2D_DrawRectSolid(0,0,0.86f,400,240,color(230,212,255,a));
+        }
+    } else if (t < 26.0f) {
+        // 24–26 s: authored Phobos artwork.
+        drawFullscreenAsset("ending_phobos",0.30f);
+    } else {
+        // 26–28.1 s: cross-fade/disintegration into final W.I.T.C.H. art.
+        const float p = clamp01((t - 26.0f) / 2.1f);
+        drawFullscreenAsset("ending_witch",0.30f);
+        drawAssetFit("ending_phobos",0,0,400,240,0.50f,true,1.0f-p);
+
+        if (p < 1.0f) {
+            for (int i=0;i<32;++i) {
+                const float delay=(i%7)*0.055f;
+                const float q=clamp01((p-delay)/std::max(0.01f,1.0f-delay));
+                if(q>=1.0f) continue;
+                const float x=185.0f+(i%8)*8.0f + ((i%3)-1)*24.0f*q;
+                const float y=35.0f+(i/8)*32.0f - (36.0f+(i%5)*8.0f)*q;
+                C2D_DrawRectSolid(x,y,0.72f,4,4,color(170,90,210,static_cast<u8>(220*(1.0f-q))));
+            }
+        }
+
+        if (t >= 28.1f) {
+            drawPanel(72, 174, 256, 46, accent, 0.82f);
+            drawText("THANK YOU FOR PLAYING", 99, 188, 0.48f, text);
+        }
+    }
+
+    C2D_TargetClear(bottom, color(10,7,17));
+    C2D_SceneBegin(bottom);
+    drawText("W.I.T.C.H. ENDING — MUSIC CLOCK", 10, 13, 0.43f, accent);
+    char buf[80];
+    std::snprintf(buf,sizeof(buf),"TIME %.1f / 28.7 SEC",t);
+    drawText(buf,10,52,0.38f,text);
+
+    const char* beat = t < 14.0f ? "CREDITS + HEART" :
+                       t < 20.0f ? "BATTLE — ENEMIES" :
+                       t < 22.0f ? "BATTLE — CEDRIC" :
+                       t < 24.0f ? "BATTLE — FINAL FORMATION" :
+                       t < 26.0f ? "PHOBOS ART" :
+                       t < 28.1f ? "DISINTEGRATION / CROSSFADE" :
+                       "THANK YOU";
+    drawText(beat,10,82,0.34f,accent);
+
+    if (t >= 30.65f) {
+        C2D_DrawRectSolid(12,126,0.72f,296,51,color(88,45,118,230));
+        drawText("A / TOUCH — RETURN",64,142,0.45f,text);
+    } else {
+        drawText("The sequence follows ending.py timing.",10,132,0.32f,text);
+        drawText("B / START — skip back",10,158,0.36f,text);
+    }
+}
+
 void renderCutsceneMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected) {
     const u32 accent = color(210,140,255);
     const u32 text = color(240,235,248);
@@ -988,7 +1164,13 @@ void renderCutsceneMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int sel
     drawText("Scenes also trigger at 100 and 200 lines.", 12, 137, 0.38f, accent);
 }
 
-void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const CutsceneState& cs) {
+void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
+                    const CutsceneState& cs, float elapsedSeconds) {
+    if (cs.kind == CutsceneKind::Ending) {
+        renderEnding(top,bottom,elapsedSeconds);
+        return;
+    }
+
     const u32 accent=color(211,143,255), text=color(245,240,250);
     C2D_TargetClear(top,color(4,3,8));
     C2D_SceneBegin(top);
@@ -1012,10 +1194,8 @@ void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const Cutsc
         std::snprintf(key,sizeof(key),"l200_collapse_%d",cs.frame%6);
         drawAssetFit(key,40,10,320,220,0.5f);
     } else {
-        title="ENDING — W.I.T.C.H.";
-        total=2;
-        drawFullscreenAsset(cs.frame%2==0?"ending_phobos":"ending_witch",0.12f);
-        C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,20));
+        title="CUTSCENE";
+        total=1;
     }
     drawPanel(8,5,384,29,accent,0.80f);
     drawText(title,20,12,0.38f,text);
