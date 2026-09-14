@@ -614,7 +614,8 @@ std::string phaseBackground(int lines) {
     return "bg_phase0";
 }
 
-void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
+void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
+                    const CodeKeyboardState& codes, float eyeShift = 0.0f) {
     const u32 text = color(245, 240, 250);
     const u32 accent = color(209, 143, 255);
     const u32 grid = color(102, 88, 118, 105);
@@ -622,16 +623,14 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
     drawFullscreenAsset(phaseBackground(game.lines()));
-    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,32));
+    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,28));
 
-    // Keep the wide 400x240 screen focused on Tetris, like the desktop game.
-    // Side panels only carry compact HUD and tetromino silhouettes.
     drawPanel(5, 5, 128, 230, accent, 0.28f);
     drawPanel(140, 5, 120, 230, accent, 0.28f);
     drawPanel(267, 5, 128, 230, accent, 0.28f);
 
     C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL,
-                      color(8,8,15,190));
+                      color(8,8,15,188));
     for (int x = 1; x < BOARD_W; ++x)
         C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.46f, 1, BOARD_H * CELL, grid);
     for (int y = 1; y < BOARD_H; ++y)
@@ -651,75 +650,100 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     }
 
     char buf[96];
-    drawText("W.I.T.C.H.", 16, 16, 0.56f, accent);
-    drawText("TETRIS", 16, 39, 0.48f, text);
+    drawText("W.I.T.C.H.", 15, 14, 0.55f, accent);
+    drawText("TETRIS", 15, 37, 0.47f, text);
     std::snprintf(buf, sizeof(buf), "LINES %d", game.lines());
-    drawText(buf, 16, 76, 0.38f, text);
+    drawText(buf, 15, 66, 0.36f, text);
     std::snprintf(buf, sizeof(buf), "SCORE %d", game.score());
-    drawText(buf, 16, 96, 0.38f, text);
+    drawText(buf, 15, 85, 0.36f, text);
     std::snprintf(buf, sizeof(buf), "SPEED %df", game.speedFrames());
-    drawText(buf, 16, 116, 0.38f, text);
+    drawText(buf, 15, 104, 0.36f, text);
 
     const char* phase = game.lines() >= 200 ? "GUARDIANS" :
                         (game.lines() >= 100 ? "RESISTANCE" : "PHOBOS");
-    drawText(phase, 16, 144, 0.34f, accent);
+    drawText(phase, 15, 124, 0.31f, accent);
 
-    drawText("NEXT", 280, 18, 0.39f, accent);
-    drawMiniPiece(game.nextKind(), 310, 50, 10.0f);
-    drawText("HOLD", 280, 106, 0.39f, accent);
-    if (game.holdKind() >= 0)
-        drawMiniPiece(game.holdKind(), 310, 139, 10.0f);
+    // Phobos keeps a visible place on the top screen, just like in the desktop
+    // composition.  The eye-dependent offset gives him real stereoscopic depth.
+    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
+    drawAssetFit(phobosKey, 18 + eyeShift * 5.0f, 133, 108, 96, 0.61f, false, 0.96f);
 
-    drawText("START: MENU", 280, 205, 0.28f, text);
+    drawText("NEXT", 279, 16, 0.38f, accent);
+    drawCharacterMiniPiece(game.nextKind(), 306, 43, 13.0f, 0.82f);
+    drawText(PIECE_CHARACTERS[game.nextKind()], 278, 88, 0.27f, text);
+
+    drawText("HOLD", 279, 112, 0.38f, accent);
+    if (game.holdKind() >= 0) {
+        drawCharacterMiniPiece(game.holdKind(), 306, 139, 12.0f, 0.82f);
+        drawText(PIECE_CHARACTERS[game.holdKind()], 278, 184, 0.27f, text);
+    }
+    drawText("START: MENU", 279, 211, 0.27f, text);
+
+    if (codes.matrixFrames > 0) {
+        C2D_DrawRectSolid(0,0,0.88f,400,240,color(0,90,20,70));
+        drawText("MATRIX", 294, 219, 0.32f, color(90,255,120));
+    }
+    if (codes.jetixFrames > 0) {
+        drawPanel(285, 192, 105, 37, color(255,180,60), 0.88f);
+        drawText("JETIX", 307, 202, 0.45f, color(255,220,90));
+    }
 
     if (game.paused()) {
-        drawPanel(92, 78, 216, 82, accent, 0.85f);
+        drawPanel(92, 78, 216, 82, accent, 0.90f);
         drawText("PAUSED", 146, 96, 0.66f, accent);
         drawText("SELECT: resume", 125, 128, 0.40f, text);
     } else if (game.gameOver()) {
-        drawPanel(78, 72, 244, 98, color(225,75,95), 0.85f);
+        drawPanel(78, 72, 244, 98, color(225,75,95), 0.90f);
         drawText("GAME OVER", 120, 92, 0.66f, color(245,100,115));
         drawText("A: restart", 145, 126, 0.42f, text);
         drawText("START: menu", 137, 147, 0.36f, text);
     }
 }
 
-void renderTetrisBottom(const Game& game, C3D_RenderTarget* target, const Mp3Player& audio) {
+void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
+                        const Mp3Player& audio, const CodeKeyboardState& codes) {
+    if (codes.open) {
+        renderCodeKeyboard(target, codes);
+        return;
+    }
+
     const u32 text = color(238, 234, 246);
     const u32 accent = color(205, 140, 255);
 
     C2D_TargetClear(target, color(12, 9, 20));
     C2D_SceneBegin(target);
 
-    // Bottom screen is the Phobos/HUD companion screen.  The gameplay board
-    // stays on the top screen; no oversized NEXT/HOLD portraits are used.
     drawAssetFit(phaseBackground(game.lines()), 0, 0, 320, 240, 0.05f, true, 1.0f);
-    C2D_DrawRectSolid(0, 0, 0.20f, 320, 240, color(0,0,0,65));
+    C2D_DrawRectSolid(0, 0, 0.20f, 320, 240, color(0,0,0,62));
 
     drawPanel(7, 7, 172, 226, accent, 0.28f);
+    drawText("CONTROLS", 16, 15, 0.39f, accent);
+    drawText("D-PAD  MOVE / DROP", 16, 43, 0.29f, text);
+    drawText("A / B  ROTATE", 16, 61, 0.29f, text);
+    drawText("X      HOLD", 16, 79, 0.29f, text);
+    drawText("Y / UP HARD DROP", 16, 97, 0.29f, text);
+    drawText("SELECT PAUSE", 16, 115, 0.29f, text);
+    drawText("START  MENU", 16, 133, 0.29f, text);
 
-    drawText("CONTROLS", 17, 17, 0.40f, accent);
-    drawText("D-PAD  MOVE / DROP", 17, 47, 0.30f, text);
-    drawText("A / B  ROTATE", 17, 66, 0.30f, text);
-    drawText("X      HOLD", 17, 85, 0.30f, text);
-    drawText("Y / UP HARD DROP", 17, 104, 0.30f, text);
-    drawText("SELECT PAUSE", 17, 123, 0.30f, text);
-    drawText("START  MENU", 17, 142, 0.30f, text);
-
-    drawText("AUDIO STATUS", 17, 170, 0.31f, accent);
+    drawText("AUDIO", 16, 157, 0.29f, accent);
     std::string status = audio.status();
     const bool audioError = status.find("FAIL") != std::string::npos;
     const u32 audioColor = audioError ? color(245,105,115) : text;
-    if (status.size() > 22) {
-        drawText(status.substr(0, 22), 17, 190, 0.25f, audioColor);
-        drawText(status.substr(22, 22), 17, 207, 0.25f, audioColor);
-    } else {
-        drawText(status, 17, 196, 0.25f, audioColor);
-    }
+    drawText(status.substr(0, 23), 16, 176, 0.23f, audioColor);
+    if (status.size() > 23)
+        drawText(status.substr(23, 23), 16, 191, 0.23f, audioColor);
+
+    C2D_DrawRectSolid(13, 208, 0.70f, 152, 22, color(92,47,123,235));
+    drawText("TOUCH: CODE KEYBOARD", 23, 214, 0.27f, color(250,240,255));
 
     const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
-    drawAssetFit(phobosKey, 176, 8, 140, 224, 0.56f, false, 1.0f);
-    drawText("PHOBOS", 248, 211, 0.30f, accent);
+    drawAssetFit(phobosKey, 174, 4, 142, 226, 0.58f, false, 1.0f);
+    drawText("PHOBOS", 244, 211, 0.29f, accent);
+
+    if (codes.messageFrames > 0 && !codes.message.empty()) {
+        drawPanel(179, 8, 136, 37, accent, 0.84f);
+        drawText(codes.message.substr(0, 22), 187, 20, 0.24f, text);
+    }
 }
 
 enum class Mode {
