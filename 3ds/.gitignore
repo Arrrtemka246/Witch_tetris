@@ -1,0 +1,11 @@
+build/
+romfs/
+.asset_build/
+*.3dsx
+*.smdh
+*.elf
+*.map
+*.cia
+cia/icon.png
+cia/banner.png
+cia/banner.wav

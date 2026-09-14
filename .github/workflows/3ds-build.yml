@@ -1,0 +1,78 @@
+name: Nintendo 3DS build
+
+on:
+  push:
+    branches:
+      - main
+      - port/3ds-native
+    paths:
+      - '3ds/**'
+      - 'assets/**'
+      - '.github/workflows/3ds-build.yml'
+  pull_request:
+    paths:
+      - '3ds/**'
+      - 'assets/**'
+      - '.github/workflows/3ds-build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install 3DS libraries and asset tools
+        run: |
+          dkp-pacman -S --needed --noconfirm 3ds-dev 3ds-mpg123
+          apt-get update -qq
+          apt-get install -y -qq python3-pil cmake g++ git ffmpeg
+
+      - name: Build CIA packaging tools
+        run: |
+          set -eux
+
+          git clone --depth 1 https://github.com/3DSGuy/Project_CTR.git /tmp/Project_CTR
+          make -C /tmp/Project_CTR/makerom deps
+          make -C /tmp/Project_CTR/makerom -j2
+          install -m 0755 /tmp/Project_CTR/makerom/bin/makerom /usr/local/bin/makerom
+
+          git clone --depth 1 https://github.com/carstene1ns/3ds-bannertool.git /tmp/3ds-bannertool
+          sed -i 's/cmake_minimum_required(VERSION 3.28)/cmake_minimum_required(VERSION 3.25)/' /tmp/3ds-bannertool/CMakeLists.txt
+          cmake -S /tmp/3ds-bannertool -B /tmp/3ds-bannertool/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/3ds-bannertool/build --parallel 2
+          install -m 0755 /tmp/3ds-bannertool/build/bannertool /usr/local/bin/bannertool
+
+          makerom --help >/dev/null 2>&1 || true
+          bannertool --help >/dev/null
+
+      - name: Build content-enabled 3DSX + CIA
+        run: make -C 3ds -j2 cia
+
+      - name: Upload 3DSX homebrew build
+        uses: actions/upload-artifact@v4
+        with:
+          name: witch-tetris-3ds
+          path: |
+            3ds/witch_tetris_3ds.3dsx
+            3ds/witch_tetris_3ds.smdh
+          if-no-files-found: error
+
+      - name: Upload installable CIA
+        uses: actions/upload-artifact@v4
+        with:
+          name: witch-tetris-3ds-cia
+          path: 3ds/witch_tetris_3ds.cia
+          if-no-files-found: error
+
+      - name: Upload crash symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: witch-tetris-3ds-symbols
+          path: |
+            3ds/witch_tetris_3ds.elf
+            3ds/witch_tetris_3ds.map
+          if-no-files-found: error
