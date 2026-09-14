@@ -117,6 +117,9 @@ CORE_IMAGES = {
     "jetix_logo": ("secrets/jetix/Jetix.png", "actor"),
     "vtd_observer": ("menu/vtd/observer.jpg", "dark_actor"),
 
+    # Line-clear / Tetris effect artwork.
+    "heart_kandrakar": ("effects/heart_kandrakar.png", "dark_actor"),
+
 }
 
 CORE_AUDIO = {
@@ -196,6 +199,12 @@ CORE_AUDIO = {
 # reaction system are transcoded during asset preparation. This keeps all
 # reaction logic on-device without adding a second decoder.
 REACTION_WAV_AUDIO = {
+    # Original line-clear effects. Native 3DS streams them on a dedicated
+    # NDSP/mpg123 channel so music and character voices can keep playing.
+    "sfx_line_clear_a.mp3": "audio/sfx/line_clear_a.wav",
+    "sfx_line_clear_b.mp3": "audio/sfx/line_clear_b.wav",
+    "sfx_heart_portal.mp3": "audio/sfx/heart_portal.wav",
+
     # New-game Phobos pool.
     "react_start_lets_begin.mp3": "audio/voice/phobos/extra/lets_begin.wav",
     "react_start_power.mp3": "audio/voice/phobos/extra2/your_power_is_nothing.wav",
@@ -350,6 +359,35 @@ def build_phase1_cells() -> None:
     run("tex3ds", "-i", str(t3s), "-o", str(GFX / "phase1_cells.t3x"))
 
 
+
+def build_horror_cells() -> None:
+    """Build the desktop Phobos-route horror bank with the same cell indexing
+    as phase1_cells: kind*16 + rotation*4 + source slot."""
+    cells_dir = WORK / "horror_cells"
+    cells_dir.mkdir(parents=True, exist_ok=True)
+    atlas_lines = ["--atlas -f rgba5551 -z auto"]
+    for kind in KIND_ORDER:
+        shape = BASE[kind]
+        for rot in range(4):
+            angle = rot * 90
+            src = ASSETS / "sprites" / "horror" / f"{kind}_rotation_{angle}.png"
+            if not src.exists():
+                raise FileNotFoundError(src)
+            with Image.open(src) as im:
+                im = im.convert("RGBA")
+                # The desktop horror pack follows the same exact tetromino mask:
+                # every logical cell is a 24x24 fragment.
+                for slot, (x, y) in enumerate(shape):
+                    crop = im.crop((x * 24, y * 24, x * 24 + 24, y * 24 + 24))
+                    name = f"horror_{kind}_{rot}_{slot}.png"
+                    crop.save(cells_dir / name)
+                    atlas_lines.append(name)
+            shape = rotate_shape(shape)
+    t3s = cells_dir / "horror_cells.t3s"
+    t3s.write_text("\n".join(atlas_lines) + "\n", encoding="utf-8")
+    run("tex3ds", "-i", str(t3s), "-o", str(GFX / "horror_cells.t3x"))
+
+
 def remove_border_light(im: Image.Image, threshold: int = 238) -> Image.Image:
     """Pillow equivalent of main.py's make_border_light_transparent()."""
     im = im.convert("RGBA")
@@ -501,6 +539,7 @@ def build_core() -> None:
         p.mkdir(parents=True, exist_ok=True)
 
     build_phase1_cells()
+    build_horror_cells()
     build_phobos_room_poses()
     build_story_frames()
     build_ending_assets()
