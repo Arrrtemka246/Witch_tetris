@@ -2579,9 +2579,25 @@ int main() {
             processGameOverReaction();
             processLongPauseHint();
 
-            // Shoulder buttons are dedicated music controls.
-            if(down&KEY_L) stepGameplayMusic(-1);
-            if(down&KEY_R) stepGameplayMusic(+1);
+            // L+R together exits VTD and explicitly returns figure fall to
+            // CLASSIC. Otherwise the shoulders remain prev/next music.
+            const bool vtdExitChord =
+                codes.vtdMode && (held&KEY_L) && (held&KEY_R) &&
+                (down&(KEY_L|KEY_R));
+            if(vtdExitChord) {
+                codes.vtdMode=false;
+                game.setFallMode(FigureFallMode::Classic);
+                voiceTakeover=false;
+                voiceAudio.stop();
+                audio.setVolume(1.0f);
+                voiceFollowups.clear();
+                manualMusicPhase=-999;
+                startGameplayMusic(true);
+                codeMessage("VTD OFF — CLASSIC");
+            } else {
+                if(down&KEY_L) stepGameplayMusic(-1);
+                if(down&KEY_R) stepGameplayMusic(+1);
+            }
 
             if(codes.open) {
                 if(down&(KEY_START|KEY_SELECT)) {
@@ -2680,16 +2696,33 @@ int main() {
             observeSpawn();
             processGameOverReaction();
 
-            startGameplayMusic(false);
+            if(phobosRoute && game.gameOver()) {
+                mode=Mode::PhobosRoom;
+                phobosState=0;
+                codes.open=false;
+                voiceTakeover=false;
+                voiceAudio.stop();
+                audio.setVolume(1.0f);
+                voiceFollowups.clear();
+                setMusic("romfs:/audio/phobos_room.mp3",true);
+            } else {
+                startGameplayMusic(false);
 
-            if(!shown100&&game.lines()>=100) {
-                shown100=true;
-                codes.open=false;
-                startCutscene(CutsceneKind::Lines100,Mode::Tetris);
-            } else if(!shown200&&game.lines()>=200) {
-                shown200=true;
-                codes.open=false;
-                startCutscene(CutsceneKind::Lines200,Mode::Tetris);
+                if(!shown100&&game.lines()>=100) {
+                    shown100=true;
+                    codes.open=false;
+                    startCutscene(CutsceneKind::Lines100,Mode::Tetris);
+                } else if(!shown200&&game.lines()>=200) {
+                    shown200=true;
+                    codes.open=false;
+                    startCutscene(CutsceneKind::Lines200,Mode::Tetris);
+                } else if(phobosRoute && !shown300 && game.lines()>=300) {
+                    shown300=true;
+                    mode=Mode::PhobosRoom;
+                    phobosState=0;
+                    codes.open=false;
+                    setMusic("romfs:/audio/phobos_room.mp3",true);
+                }
             }
 
         } else if(mode==Mode::CutsceneMenu) {
