@@ -17,7 +17,7 @@ namespace {
 constexpr int BOARD_W = 10;
 constexpr int BOARD_H = 20;
 constexpr int CELL = 11;
-constexpr float BOARD_X = 145.0f;
+constexpr float BOARD_X = 18.0f;
 constexpr float BOARD_Y = 10.0f;
 constexpr int LOCK_DELAY_FRAMES = 30;
 constexpr int SOFT_DROP_FRAMES = 2;
@@ -40,10 +40,6 @@ constexpr Point BASE_SHAPES[PIECE_COUNT][4] = {
 const char* PIECE_NAMES[PIECE_COUNT] = {"I","O","T","S","Z","J","L"};
 const char* PIECE_CHARACTERS[PIECE_COUNT] = {
     "CORNELIA", "BLUNK", "CALEB", "IRMA", "WILL", "TARANEE", "HAY LIN"
-};
-const char* PIECE_PORTRAITS[PIECE_COUNT] = {
-    "intro_cornelia", "intro_blunk", "intro_caleb", "intro_irma",
-    "intro_will", "intro_taranee", "intro_haylin"
 };
 
 u32 PIECE_COLORS[PIECE_COUNT];
@@ -122,6 +118,7 @@ public:
     int lines() const { return lines_; }
     int holdKind() const { return holdKind_; }
     int nextKind() const { return nextKind_; }
+    int speedFrames() const { return gravityInterval(); }
     const Piece& current() const { return current_; }
     const std::array<std::array<int, BOARD_W>, BOARD_H>& board() const { return board_; }
 
@@ -471,11 +468,13 @@ void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false) {
     }
 }
 
-void drawMiniPiece(int kind, float x, float y) {
+void drawMiniPiece(int kind, float x, float y, float cell = 8.0f) {
     for (int slot = 0; slot < 4; ++slot) {
         const Point& p = SHAPES[kind][0][slot];
-        const int encoded = kind * 16 + slot;
-        drawFragment(encoded, x + p.x * 9.0f, y + p.y * 9.0f, 9.0f, 0.82f);
+        const float px = x + p.x * cell;
+        const float py = y + p.y * cell;
+        C2D_DrawRectSolid(px, py, 0.82f, cell - 1.0f, cell - 1.0f, PIECE_COLORS[kind]);
+        C2D_DrawRectSolid(px + 1.0f, py + 1.0f, 0.83f, cell - 3.0f, 1.0f, color(255,255,255,80));
     }
 }
 
@@ -488,18 +487,64 @@ std::string phaseBackground(int lines) {
 void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     const u32 text = color(245, 240, 250);
     const u32 accent = color(209, 143, 255);
-    const u32 grid = color(105, 88, 120, 110);
 
     C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
     drawFullscreenAsset(phaseBackground(game.lines()));
     C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,35));
 
-    drawPanel(5, 8, 127, 224, accent);
-    drawPanel(140, 5, 120, 230, accent);
-    drawPanel(268, 8, 127, 224, accent);
+    // 3DS layout: the top screen is the "Phobos stage", like the right side
+    // of the desktop original.  Gameplay itself lives on the touch screen.
+    drawPanel(8, 8, 157, 224, accent, 0.28f);
 
-    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL, color(8,8,15,150));
+    char buf[96];
+    drawText("W.I.T.C.H. TETRIS", 18, 18, 0.52f, accent);
+    std::snprintf(buf, sizeof(buf), "LINES  %d", game.lines());
+    drawText(buf, 18, 54, 0.42f, text);
+    std::snprintf(buf, sizeof(buf), "SCORE  %d", game.score());
+    drawText(buf, 18, 76, 0.42f, text);
+    std::snprintf(buf, sizeof(buf), "SPEED  %df", game.speedFrames());
+    drawText(buf, 18, 98, 0.42f, text);
+
+    const char* phase = game.lines() >= 200 ? "GUARDIANS 200+" :
+                        (game.lines() >= 100 ? "RESISTANCE 100-199" : "PHOBOS 0-99");
+    drawText(phase, 18, 122, 0.31f, accent);
+
+    drawText("NEXT", 18, 151, 0.34f, text);
+    drawMiniPiece(game.nextKind(), 72, 148, 8.0f);
+    drawText("HOLD", 18, 190, 0.34f, text);
+    if (game.holdKind() >= 0) drawMiniPiece(game.holdKind(), 72, 187, 8.0f);
+
+    // Phobos is always present during the story-driven Tetris phases.
+    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
+    drawAssetFit(phobosKey, 158, 8, 238, 226, 0.56f, false, 1.0f);
+    drawText("PHOBOS", 327, 211, 0.34f, accent);
+
+    if (game.paused()) {
+        drawPanel(92, 78, 216, 82, accent, 0.85f);
+        drawText("PAUSED", 146, 96, 0.66f, accent);
+        drawText("SELECT: resume", 125, 128, 0.40f, text);
+    } else if (game.gameOver()) {
+        drawPanel(78, 72, 244, 98, color(225,75,95), 0.85f);
+        drawText("GAME OVER", 120, 92, 0.66f, color(245,100,115));
+        drawText("A: restart", 145, 126, 0.42f, text);
+        drawText("START: menu", 137, 147, 0.36f, text);
+    }
+}
+
+void renderTetrisBottom(const Game& game, C3D_RenderTarget* target, const Mp3Player& audio) {
+    const u32 text = color(238, 234, 246);
+    const u32 accent = color(205, 140, 255);
+    const u32 grid = color(102, 88, 118, 105);
+
+    C2D_TargetClear(target, color(12, 9, 20));
+    C2D_SceneBegin(target);
+
+    // The board is deliberately on the lower 320x240 screen.  20 rows x 11px
+    // use 220px, leaving a compact control/status column to the right.
+    drawPanel(12, 5, 122, 230, accent, 0.28f);
+    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL, color(8,8,15,210));
+
     for (int x = 1; x < BOARD_W; ++x)
         C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.46f, 1, BOARD_H * CELL, grid);
     for (int y = 1; y < BOARD_H; ++y)
@@ -508,7 +553,8 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     const auto& board = game.board();
     for (int y = 0; y < BOARD_H; ++y) {
         for (int x = 0; x < BOARD_W; ++x) {
-            if (board[y][x] >= 0) drawFragment(board[y][x], BOARD_X + x * CELL, BOARD_Y + y * CELL);
+            if (board[y][x] >= 0)
+                drawFragment(board[y][x], BOARD_X + x * CELL, BOARD_Y + y * CELL);
         }
     }
 
@@ -517,55 +563,34 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
         drawPieceAt(game.current(), game.current().y, false);
     }
 
-    char buf[96];
-    drawText("W.I.T.C.H.", 16, 17, 0.62f, accent);
-    drawText("TETRIS 3DS", 16, 39, 0.47f, text);
-    std::snprintf(buf, sizeof(buf), "SCORE %d", game.score());
-    drawText(buf, 16, 77, 0.39f, text);
-    std::snprintf(buf, sizeof(buf), "LINES %d", game.lines());
-    drawText(buf, 16, 96, 0.39f, text);
-    std::snprintf(buf, sizeof(buf), "PHASE %d", game.lines() >= 200 ? 3 : (game.lines() >= 100 ? 2 : 1));
-    drawText(buf, 16, 115, 0.39f, text);
+    drawPanel(141, 5, 174, 230, accent, 0.28f);
+    drawText("CONTROLS", 153, 15, 0.40f, accent);
+    drawText("D-PAD  move/drop", 153, 46, 0.32f, text);
+    drawText("A / B  rotate", 153, 66, 0.32f, text);
+    drawText("X      HOLD", 153, 86, 0.32f, text);
+    drawText("Y / UP hard drop", 153, 106, 0.32f, text);
+    drawText("SELECT pause", 153, 126, 0.32f, text);
+    drawText("START  menu", 153, 146, 0.32f, text);
 
-    drawText("HOLD", 16, 149, 0.38f, accent);
-    if (game.holdKind() >= 0) drawMiniPiece(game.holdKind(), 35, 174);
-
-    drawText("NEXT", 279, 17, 0.40f, accent);
-    drawAssetFit(PIECE_PORTRAITS[game.nextKind()], 276, 39, 110, 94, 0.76f, false, 0.72f);
-    drawMiniPiece(game.nextKind(), 316, 91);
-    drawText(PIECE_CHARACTERS[game.nextKind()], 279, 139, 0.34f, text);
-    drawText("ORIGINAL ART", 279, 180, 0.32f, accent);
-    drawText("VISIBLE MODE", 279, 197, 0.32f, accent);
-
-    if (game.paused()) {
-        drawPanel(95, 78, 210, 82, accent, 0.85f);
-        drawText("PAUSED", 145, 95, 0.68f, accent);
-        drawText("SELECT: resume", 126, 127, 0.40f, text);
-    } else if (game.gameOver()) {
-        drawPanel(80, 72, 240, 98, color(225,75,95), 0.85f);
-        drawText("GAME OVER", 120, 91, 0.67f, color(245,100,115));
-        drawText("A: restart", 145, 124, 0.43f, text);
-        drawText("START: menu", 134, 145, 0.36f, text);
+    drawText("AUDIO", 153, 174, 0.32f, accent);
+    std::string status = audio.status();
+    if (status.size() > 25) {
+        const std::size_t split = status.find(' ', 20);
+        if (split != std::string::npos && split < 34) {
+            drawText(status.substr(0, split), 153, 194, 0.27f,
+                     audio.ready() ? text : color(245,110,120));
+            drawText(status.substr(split + 1), 153, 210, 0.27f,
+                     audio.ready() ? text : color(245,110,120));
+        } else {
+            drawText(status.substr(0, 25), 153, 194, 0.27f,
+                     audio.ready() ? text : color(245,110,120));
+            drawText(status.substr(25), 153, 210, 0.27f,
+                     audio.ready() ? text : color(245,110,120));
+        }
+    } else {
+        drawText(status, 153, 198, 0.27f,
+                 audio.ready() ? text : color(245,110,120));
     }
-}
-
-void renderTetrisBottom(const Game& game, C3D_RenderTarget* target) {
-    C2D_TargetClear(target, color(12, 9, 20));
-    C2D_SceneBegin(target);
-    const u32 text = color(235,230,245);
-    const u32 accent = color(205,140,255);
-
-    drawText("W.I.T.C.H. TETRIS — ORIGINAL ART MODE", 10, 12, 0.40f, accent);
-    drawText("← → move      ↓ soft drop", 12, 54, 0.42f, text);
-    drawText("↑ / Y hard drop", 12, 78, 0.42f, text);
-    drawText("A rotate CW    B rotate CCW", 12, 102, 0.42f, text);
-    drawText("X HOLD         SELECT pause", 12, 126, 0.42f, text);
-    drawText("START — return to main menu", 12, 150, 0.42f, text);
-
-    char buf[96];
-    std::snprintf(buf, sizeof(buf), "NOW: %s / %s", PIECE_NAMES[game.current().kind], PIECE_CHARACTERS[game.current().kind]);
-    drawText(buf, 12, 190, 0.42f, game.gameOver() ? color(230,80,95) : text);
-    drawText("100 / 200 lines trigger story scenes.", 12, 215, 0.34f, accent);
 }
 
 enum class Mode {
@@ -1271,7 +1296,7 @@ int main() {
 
         if(mode==Mode::Intro) renderIntro(top,bottom,introScene);
         else if(mode==Mode::Menu) renderMenu(top,bottom,menuIndex);
-        else if(mode==Mode::Tetris) {renderTetrisTop(game,top);renderTetrisBottom(game,bottom);}
+        else if(mode==Mode::Tetris) {renderTetrisTop(game,top);renderTetrisBottom(game,bottom,audio);}
         else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(top,bottom,cutsceneIndex);
         else if(mode==Mode::Cutscene) renderCutscene(top,bottom,cutscene);
         else if(mode==Mode::MiniMenu) renderMiniMenu(top,bottom,miniIndex);
