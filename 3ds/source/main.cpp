@@ -1565,6 +1565,7 @@ std::string musicForTetris(int lines) {
 
 int main() {
     gfxInitDefault();
+    gfxSet3D(true);
     romfsInit();
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
@@ -1573,35 +1574,138 @@ int main() {
     initColors();
     initShapes();
 
-    C3D_RenderTarget* top=C2D_CreateScreenTarget(GFX_TOP,GFX_LEFT);
+    C3D_RenderTarget* topLeft=C2D_CreateScreenTarget(GFX_TOP,GFX_LEFT);
+    C3D_RenderTarget* topRight=C2D_CreateScreenTarget(GFX_TOP,GFX_RIGHT);
     C3D_RenderTarget* bottom=C2D_CreateScreenTarget(GFX_BOTTOM,GFX_LEFT);
     g_textBuf=C2D_TextBufNew(8192);
+
     Mp3Player audio;
     audio.init();
 
     Game game;
     Mode mode=Mode::Intro;
     CutsceneState cutscene;
-    int introScene=0;
+    IntroState intro;
+    std::mt19937 uiRng(static_cast<unsigned int>(osGetTime() ^ 0x57495443u));
+    rerollIntro(intro, uiRng);
+
+    CodeKeyboardState codes;
     int menuIndex=0;
     int cutsceneIndex=0;
     int phobosState=0;
     int repeatDir=0,repeatTimer=0;
     bool shown100=false,shown200=false;
     bool quit=false;
-    std::string wantedMusic;
+
+    bool voiceTakeover=false;
+    std::string resumeAfterVoice;
+    std::string vtdTrack="romfs:/audio/vtd_1.mp3";
 
     auto setMusic=[&](const std::string& path,bool loop=true){
-        if(audio.ready() && audio.path()!=path) audio.play(path,loop);
+        if(audio.ready() && !voiceTakeover && audio.path()!=path)
+            audio.play(path,loop);
     };
+
+    auto playVoice=[&](const std::string& voicePath){
+        if(!audio.ready()) return;
+        resumeAfterVoice=audio.path();
+        voiceTakeover=true;
+        audio.play(voicePath,false);
+    };
+
+    auto phaseOrSecretMusic=[&]()->std::string {
+        return codes.vtdMode ? vtdTrack : musicForTetris(game.lines());
+    };
+
     auto goMenu=[&](){
         mode=Mode::Menu;
         menuIndex=0;
+        codes.open=false;
+        codes.vtdMode=false;
+        voiceTakeover=false;
         setMusic((osGetTime()/1000)%2?"romfs:/audio/menu_1.mp3":"romfs:/audio/menu_2.mp3",true);
     };
+
     auto startCutscene=[&](CutsceneKind kind,Mode ret){
-        cutscene.kind=kind;cutscene.frame=0;cutscene.returnMode=ret;mode=Mode::Cutscene;
-        if(kind==CutsceneKind::Ending) setMusic("romfs:/audio/phase2_guardians.mp3",false);
+        cutscene.kind=kind;
+        cutscene.frame=0;
+        cutscene.returnMode=ret;
+        cutscene.startedMs=osGetTime();
+        mode=Mode::Cutscene;
+        codes.open=false;
+        if(kind==CutsceneKind::Ending)
+            audio.play("romfs:/audio/ending_outro.mp3",false);
+    };
+
+    auto endsWith=[](const std::string& value,const std::string& suffix)->bool {
+        return value.size()>=suffix.size() &&
+               value.compare(value.size()-suffix.size(),suffix.size(),suffix)==0;
+    };
+
+    auto codeMessage=[&](const std::string& msg){
+        codes.message=msg;
+        codes.messageFrames=180;
+    };
+
+    auto activateTypedCode=[&]()->bool {
+        const std::string& b=codes.buffer;
+
+        if(endsWith(b,"PHOBOS") || endsWith(b,"ФОБОС")) {
+            codeMessage("PHOBOS HEARD YOU");
+            playVoice("romfs:/audio/voice_phobos.mp3");
+            codes.buffer.clear();
+            return true;
+        }
+
+        if(endsWith(b,"MATRIX") || endsWith(b,"МАТРИЦА")) {
+            codes.matrixFrames=FPS*9;
+            codeMessage("MATRIX");
+            playVoice("romfs:/audio/voice_matrix.mp3");
+            codes.buffer.clear();
+            return true;
+        }
+
+        if(endsWith(b,"JETIX") || endsWith(b,"ДЖЕТИКС")) {
+            codes.jetixFrames=FPS*6;
+            codeMessage("JETIX");
+            playVoice("romfs:/audio/voice_phobos.mp3");
+            codes.buffer.clear();
+            return true;
+        }
+
+        if(endsWith(b,"VTD") || endsWith(b,"ВТД") || endsWith(b,"ВАЛЕНТИН")) {
+            codes.vtdMode=!codes.vtdMode;
+            voiceTakeover=false;
+            resumeAfterVoice.clear();
+            if(codes.vtdMode) {
+                vtdTrack=((osGetTime()/1000)&1)?"romfs:/audio/vtd_1.mp3":"romfs:/audio/vtd_2.mp3";
+                audio.play(vtdTrack,true);
+                codeMessage("VTD MODE ON");
+            } else {
+                audio.play(musicForTetris(game.lines()),true);
+                codeMessage("VTD MODE OFF");
+            }
+            codes.buffer.clear();
+            return true;
+        }
+
+        if(endsWith(b,"WITCH") || endsWith(b,"GUARDIANS") || endsWith(b,"KANDRAKAR") ||
+           endsWith(b,"ВИТЧ") || endsWith(b,"СТРАЖНИЦЫ") ||
+           endsWith(b,"ЧАРОДЕЙКИ") || endsWith(b,"КОНДРАКАР")) {
+            game.developerClearBoard();
+            codeMessage("BOARD CLEARED");
+            playVoice("romfs:/audio/voice_phobos.mp3");
+            codes.buffer.clear();
+            return true;
+        }
+
+        if(endsWith(b,"PORN") || endsWith(b,"ПОРН")) {
+            codeMessage("18+ CODE RECOGNIZED");
+            playVoice("romfs:/audio/voice_porn.mp3");
+            codes.buffer.clear();
+            return true;
+        }
+        return false;
     };
 
     setMusic("romfs:/audio/intro.mp3",false);
@@ -1616,76 +1720,176 @@ int main() {
 
         audio.update();
 
+        if(voiceTakeover && !audio.playing()) {
+            voiceTakeover=false;
+            if(!resumeAfterVoice.empty()) {
+                const std::string resume=resumeAfterVoice;
+                resumeAfterVoice.clear();
+                audio.play(resume,true);
+            }
+        }
+
+        if(codes.messageFrames>0) --codes.messageFrames;
+        if(codes.matrixFrames>0) --codes.matrixFrames;
+        if(codes.jetixFrames>0) --codes.jetixFrames;
+
         if(mode==Mode::Intro) {
+            ++intro.frames;
             if(down&(KEY_B|KEY_START)) {
                 goMenu();
             } else if((down&KEY_A)||touchPressed) {
-                ++introScene;
-                if(introScene>=6) goMenu();
+                ++intro.scene;
+                intro.frames=0;
+                if(intro.scene>=8) goMenu();
             }
-            setMusic("romfs:/audio/intro.mp3",false);
+            if(!voiceTakeover)
+                setMusic("romfs:/audio/intro.mp3",false);
+
         } else if(mode==Mode::Menu) {
             if(down&KEY_START) quit=true;
             if(down&KEY_UP) menuIndex=(menuIndex+MENU_COUNT-1)%MENU_COUNT;
             if(down&KEY_DOWN) menuIndex=(menuIndex+1)%MENU_COUNT;
             if(down&KEY_A) {
                 if(menuIndex==0) {
-                    game.reset();shown100=false;shown200=false;mode=Mode::Tetris;
+                    game.reset();
+                    shown100=false;
+                    shown200=false;
+                    codes=CodeKeyboardState();
+                    mode=Mode::Tetris;
                     setMusic(musicForTetris(0),true);
                 } else if(menuIndex==1) {
-                    mode=Mode::CutsceneMenu;cutsceneIndex=0;
+                    mode=Mode::CutsceneMenu;
+                    cutsceneIndex=0;
                 } else if(menuIndex==2) {
-                    mode=Mode::PhobosRoom;phobosState=0;
+                    mode=Mode::PhobosRoom;
+                    phobosState=0;
                     setMusic("romfs:/audio/phobos_room.mp3",true);
-                } else quit=true;
+                } else {
+                    quit=true;
+                }
             }
+
         } else if(mode==Mode::Tetris) {
-            if(down&KEY_START) {
-                goMenu();
-            } else {
-                if(down&KEY_SELECT) game.togglePause();
-                if(game.gameOver()) {
-                    if(down&KEY_A) {game.reset();shown100=false;shown200=false;setMusic(musicForTetris(0),true);}
-                } else if(!game.paused()) {
-                    handleHorizontalRepeat(game,down,held,repeatDir,repeatTimer);
-                    if(down&KEY_A) game.rotate(+1);
-                    if(down&KEY_B) game.rotate(-1);
-                    if(down&KEY_X) game.hold();
-                    if((down&KEY_UP)||(down&KEY_Y)) game.hardDrop();
-                    game.tick((held&KEY_DOWN)!=0);
+            if(codes.open) {
+                if(down&(KEY_B|KEY_START)) {
+                    codes.open=false;
+                    codes.buffer.clear();
                 }
-                setMusic(musicForTetris(game.lines()),true);
-                if(!shown100&&game.lines()>=100) {
-                    shown100=true;startCutscene(CutsceneKind::Lines100,Mode::Tetris);
-                } else if(!shown200&&game.lines()>=200) {
-                    shown200=true;startCutscene(CutsceneKind::Lines200,Mode::Tetris);
+                if(touchPressed) {
+                    const std::string token=codeTouchToken(touch,codes.russian);
+                    if(token=="<CLEAR>") {
+                        codes.buffer.clear();
+                        codeMessage("BUFFER CLEARED");
+                    } else if(token=="<LANG>") {
+                        codes.russian=!codes.russian;
+                        codes.buffer.clear();
+                    } else if(token=="<CLOSE>") {
+                        codes.open=false;
+                        codes.buffer.clear();
+                    } else if(token=="<ENTER>") {
+                        if(!activateTypedCode()) codeMessage("UNKNOWN CODE");
+                        codes.buffer.clear();
+                    } else if(token=="Q" && !codes.russian) {
+                        // The touch keyboard is permanently CAPS, so tapping Q is
+                        // the 3DS equivalent of the desktop Shift+Q developer cheat.
+                        game.developerAddLines(10);
+                        codeMessage("SHIFT+Q  +10 LINES");
+                    } else if(!token.empty()) {
+                        codes.buffer+=token;
+                        if(codes.buffer.size()>96)
+                            codes.buffer.erase(0,codes.buffer.size()-96);
+                        activateTypedCode();
+                    }
+                }
+            } else {
+                if(touchPressed && hitBox(touch,13,205,152,30)) {
+                    codes.open=true;
+                    codes.buffer.clear();
+                    codes.message="CAPS READY — TAP Q FOR +10";
+                    codes.messageFrames=240;
+                } else if(down&KEY_START) {
+                    goMenu();
+                } else {
+                    if(down&KEY_SELECT) game.togglePause();
+                    if(game.gameOver()) {
+                        if(down&KEY_A) {
+                            game.reset();
+                            shown100=false;
+                            shown200=false;
+                            codes.vtdMode=false;
+                            setMusic(musicForTetris(0),true);
+                        }
+                    } else if(!game.paused()) {
+                        handleHorizontalRepeat(game,down,held,repeatDir,repeatTimer);
+                        if(down&KEY_A) game.rotate(+1);
+                        if(down&KEY_B) game.rotate(-1);
+                        if(down&KEY_X) game.hold();
+                        if((down&KEY_UP)||(down&KEY_Y)) game.hardDrop();
+                        game.tick((held&KEY_DOWN)!=0);
+                    }
                 }
             }
+
+            if(!voiceTakeover)
+                setMusic(phaseOrSecretMusic(),true);
+
+            if(!shown100&&game.lines()>=100) {
+                shown100=true;
+                codes.open=false;
+                startCutscene(CutsceneKind::Lines100,Mode::Tetris);
+            } else if(!shown200&&game.lines()>=200) {
+                shown200=true;
+                codes.open=false;
+                startCutscene(CutsceneKind::Lines200,Mode::Tetris);
+            }
+
         } else if(mode==Mode::CutsceneMenu) {
             if(down&(KEY_B|KEY_START)) goMenu();
             if(down&KEY_UP) cutsceneIndex=(cutsceneIndex+CUTSCENE_COUNT-1)%CUTSCENE_COUNT;
             if(down&KEY_DOWN) cutsceneIndex=(cutsceneIndex+1)%CUTSCENE_COUNT;
             if(down&KEY_A) {
-                if(cutsceneIndex==0) {mode=Mode::Intro;introScene=0;setMusic("romfs:/audio/intro.mp3",false);}
-                else if(cutsceneIndex==1) startCutscene(CutsceneKind::Lines100,Mode::CutsceneMenu);
-                else if(cutsceneIndex==2) startCutscene(CutsceneKind::Lines200,Mode::CutsceneMenu);
-                else startCutscene(CutsceneKind::Ending,Mode::CutsceneMenu);
-            }
-        } else if(mode==Mode::Cutscene) {
-            int total=cutscene.kind==CutsceneKind::Lines100?8:(cutscene.kind==CutsceneKind::Lines200?6:2);
-            if(down&(KEY_B|KEY_START)) {
-                Mode ret=cutscene.returnMode;
-                mode=ret;
-                if(ret==Mode::Tetris) setMusic(musicForTetris(game.lines()),true);
-                else if(ret==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-            } else if((down&KEY_A)||touchPressed) {
-                ++cutscene.frame;
-                if(cutscene.frame>=total) {
-                    Mode ret=cutscene.returnMode;mode=ret;
-                    if(ret==Mode::Tetris) setMusic(musicForTetris(game.lines()),true);
-                    else setMusic("romfs:/audio/menu_1.mp3",true);
+                if(cutsceneIndex==0) {
+                    rerollIntro(intro,uiRng);
+                    mode=Mode::Intro;
+                    setMusic("romfs:/audio/intro.mp3",false);
+                } else if(cutsceneIndex==1) {
+                    startCutscene(CutsceneKind::Lines100,Mode::CutsceneMenu);
+                } else if(cutsceneIndex==2) {
+                    startCutscene(CutsceneKind::Lines200,Mode::CutsceneMenu);
+                } else {
+                    startCutscene(CutsceneKind::Ending,Mode::CutsceneMenu);
                 }
             }
+
+        } else if(mode==Mode::Cutscene) {
+            const float elapsed=static_cast<float>(osGetTime()-cutscene.startedMs)/1000.0f;
+
+            if(cutscene.kind==CutsceneKind::Ending) {
+                if(down&(KEY_B|KEY_START)) {
+                    mode=cutscene.returnMode;
+                    if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
+                    else if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
+                } else if(elapsed>=30.65f && ((down&KEY_A)||touchPressed)) {
+                    mode=cutscene.returnMode;
+                    if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
+                    else if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
+                }
+            } else {
+                const int total=cutscene.kind==CutsceneKind::Lines100?8:6;
+                if(down&(KEY_B|KEY_START)) {
+                    mode=cutscene.returnMode;
+                    if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
+                    else if(mode==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
+                } else if((down&KEY_A)||touchPressed) {
+                    ++cutscene.frame;
+                    if(cutscene.frame>=total) {
+                        mode=cutscene.returnMode;
+                        if(mode==Mode::Tetris) setMusic(phaseOrSecretMusic(),true);
+                        else setMusic("romfs:/audio/menu_1.mp3",true);
+                    }
+                }
+            }
+
         } else if(mode==Mode::PhobosRoom) {
             if(down&(KEY_B|KEY_START)) goMenu();
             else if(down&(KEY_A|KEY_X)) phobosState=(phobosState+1)%6;
@@ -1694,12 +1898,26 @@ int main() {
         C2D_TextBufClear(g_textBuf);
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 
-        if(mode==Mode::Intro) renderIntro(top,bottom,introScene);
-        else if(mode==Mode::Menu) renderMenu(top,bottom,menuIndex,audio);
-        else if(mode==Mode::Tetris) {renderTetrisTop(game,top);renderTetrisBottom(game,bottom,audio);}
-        else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(top,bottom,cutsceneIndex);
-        else if(mode==Mode::Cutscene) renderCutscene(top,bottom,cutscene);
-        else renderPhobosRoom(top,bottom,phobosState);
+        const float slider=CONFIG_3D_SLIDERSTATE;
+        auto renderScene=[&](C3D_RenderTarget* topTarget,float eye){
+            const float endingElapsed=
+                (mode==Mode::Cutscene && cutscene.kind==CutsceneKind::Ending)
+                ? static_cast<float>(osGetTime()-cutscene.startedMs)/1000.0f : 0.0f;
+
+            if(mode==Mode::Intro) renderIntro(topTarget,bottom,intro);
+            else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio);
+            else if(mode==Mode::Tetris) {
+                renderTetrisTop(game,topTarget,codes,eye);
+                renderTetrisBottom(game,bottom,audio,codes);
+            }
+            else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(topTarget,bottom,cutsceneIndex);
+            else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed);
+            else renderPhobosRoom(topTarget,bottom,phobosState);
+        };
+
+        renderScene(topLeft,-slider);
+        if(slider>0.01f)
+            renderScene(topRight,slider);
 
         C3D_FrameEnd(0);
     }
