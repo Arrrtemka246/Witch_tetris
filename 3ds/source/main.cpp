@@ -2184,6 +2184,49 @@ int main() {
         codeMessage(msg);
     };
 
+    auto togglePauseWithReaction=[&](){
+        const bool wasPaused=game.paused();
+        game.togglePause();
+        if(wasPaused!=game.paused())
+            maybePauseReaction(wasPaused); // leaving=true when resuming
+    };
+
+    auto processLongPauseHint=[&](){
+        if(game.paused() || game.gameOver() || codes.open) return;
+        ++reactionPlayFrames;
+        if(reactionPauseHintPlayed || reactionPlayFrames<reactionPauseEligibleAt) return;
+
+        const int sinceEligible=reactionPlayFrames-reactionPauseEligibleAt;
+        if(sinceEligible% (FPS*10) != 0) return;
+        if(roll(0.18f) &&
+           playReaction("romfs:/audio/react_pause_hint.mp3",
+                        "PHOBOS — PAUSE HINT",false))
+            reactionPauseHintPlayed=true;
+    };
+
+    auto processGameOverReaction=[&](){
+        if(!game.gameOver() || reactionGameOverHandled) return;
+        reactionGameOverHandled=true;
+
+        // Original game stops mocking the player after the 200-line victory
+        // threshold. The route system is still being expanded on 3DS, so use
+        // the same line threshold here.
+        if(game.lines()>=200) return;
+
+        ++consecutiveGameOvers;
+        if(consecutiveGameOvers>=5 && !loserStreakVoiceUsed) {
+            if(playReaction("romfs:/audio/react_gameover_loser.mp3",
+                            "PHOBOS — GAME OVER",true)) {
+                loserStreakVoiceUsed=true;
+                return;
+            }
+        }
+
+        if(roll(0.38f))
+            playReaction("romfs:/audio/react_gameover_expected.mp3",
+                         "PHOBOS — GAME OVER",true);
+    };
+
     auto activateTypedCode=[&]()->bool {
         const std::string& b=codes.buffer;
 
