@@ -760,7 +760,7 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
         drawPanel(78, 72, 244, 98, color(225,75,95), 0.90f);
         drawText("GAME OVER", 120, 92, 0.66f, color(245,100,115));
         drawText("A: restart", 145, 126, 0.42f, text);
-        drawText("START: menu", 137, 147, 0.36f, text);
+        drawText("B: menu", 151, 147, 0.36f, text);
     }
 }
 
@@ -2019,7 +2019,9 @@ int main() {
                 } else {
                     if(down&(KEY_START|KEY_SELECT)) game.togglePause();
                     if(game.gameOver()) {
-                        if(down&KEY_A) {
+                        if(down&KEY_B) {
+                            goMenu();
+                        } else if(down&KEY_A) {
                             game.reset();
                             shown100=false;
                             shown200=false;
