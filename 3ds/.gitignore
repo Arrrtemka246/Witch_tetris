@@ -5,3 +5,7 @@ romfs/
 *.smdh
 *.elf
 *.map
+*.cia
+cia/icon.png
+cia/banner.png
+cia/banner.wav
