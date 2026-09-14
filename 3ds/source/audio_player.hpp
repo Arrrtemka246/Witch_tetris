@@ -6,7 +6,7 @@
 
 class Mp3Player {
 public:
-    Mp3Player();
+    explicit Mp3Player(int channel = 0);
     ~Mp3Player();
 
     bool init();
@@ -15,19 +15,28 @@ public:
     void stop();
     void update();
     void pause(bool value);
+    void setVolume(float value);
+
     bool ready() const { return ready_; }
     bool playing() const { return playing_; }
     const std::string& path() const { return path_; }
     const std::string& status() const { return status_; }
     Result initResult() const { return initResult_; }
+    float volume() const { return volume_; }
 
 private:
-    static const int CHANNEL = 0;
     static const int NUM_BUFS = 3;
     static const std::size_t BUF_BYTES = 32 * 1024;
 
-    bool fill(int index);
+    static int systemRefs_;
+    static bool systemReady_;
+    static Result systemInitResult_;
 
+    bool fill(int index);
+    void applyMix();
+
+    int channel_;
+    float volume_;
     bool ready_;
     bool playing_;
     bool looping_;
