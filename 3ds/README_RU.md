@@ -1,91 +1,138 @@
 # W.I.T.C.H. Tetris — Nintendo 3DS port
 
-Это нативный homebrew-порт проекта на Nintendo 3DS. Он **не запускает Python/Pygame** на консоли: игровой цикл переписан на C++11 с использованием **libctru + Citro2D**.
+Нативный homebrew-порт проекта на Nintendo 3DS. Python/Pygame на консоли не используется: игровой цикл переписан на C++11 с **libctru + Citro2D**, а оригинальный контент собирается в RomFS.
 
-## Что уже перенесено
+## Phase 2: контент
 
-Текущий Phase 1 — полноценный игровой vertical slice:
+Текущая ветка уже не является только «голым Tetris».
 
-- поле 10×20;
-- все 7 тетромино с геометрией из `main.py`;
-- вращение по той же схеме и wall-kicks `0, -1, +1, -2, +2`;
-- ghost piece;
-- soft drop и hard drop;
-- HOLD один раз на фигуру;
-- NEXT;
-- очистка линий;
-- очки за 1/2/3/4 линии: 100/300/500/800;
-- `+2` очка за клетку hard drop;
-- адаптированный Phobos controlled-chaos randomizer из основной версии;
-- пауза и Game Over;
-- верхний экран — поле/HUD, нижний — управление.
+### Основная игра
 
-Пока **не перенесены** сюжетные сцены, спрайты персонажей, музыка/озвучка, Collection, секреты и 15 мини-игр. Они будут подключаться поверх уже работающего нативного ядра через RomFS.
+- поле 10×20 и логика Phase 1;
+- все 7 тетромино;
+- вращение и wall-kicks как в main.py;
+- ghost, HOLD, NEXT, soft/hard drop;
+- Phobos controlled-chaos randomizer;
+- **оригинальные фоны трёх фаз**;
+- **оригинальные Phase-I character sprites**;
+- фигуры разбиваются на 24×24 фрагменты во время сборки;
+- после фиксации в поле хранится конкретный фрагмент персонажа, поэтому очистка линии может удалить только часть изображения — как в оригинальной Pygame-версии;
+- фазы графики и музыки переключаются на 100/200 линиях.
+
+### Музыка
+
+MP3 не перекодируется в другой музыкальный материал: оригинальные файлы из assets/audio копируются в RomFS и потоково декодируются на 3DS через mpg123 + ndsp.
+
+В core-сборку входят:
+- два трека главного меню;
+- intro music;
+- музыка фаз 0–99 и 100–199;
+- Guardians/Phobos route music;
+- Phobos Room;
+- треки для перенесённых мини-игр.
+
+На реальной 3DS нужен рабочий DSP firmware (sdmc:/3ds/dspfirm.cdc), как и для другого homebrew, использующего ndsp.
+
+### Катсцены и экраны
+
+- оригинальное INTRO;
+- архив сцены 100 линий;
+- сцена 200 линий с кадрами падения Фобоса;
+- ending preview;
+- оригинальная layered Phobos Room;
+- отдельное главное меню для 3DS.
+
+Сюжетные сцены 100/200 автоматически вызываются из Tetris и также доступны из CUTSCENES для быстрого тестирования.
+
+### Мини-игры
+
+В Phase 2 уже сделаны четыре нативных игровых порта:
+
+1. SNAKE — BLUNK/CEDRIC/PHOBOS;
+2. BLUNK TREASURE ESCAPE;
+3. CORNELIA STONE COVERS;
+4. IRMA DARK WATER PANIC.
+
+Они используют механику актуальной desktop-версии как reference. Остальные мини-игры из main.py будут переноситься поверх этого же слоя после проверки производительности Phase 2 на **Old 3DS**.
+
+## Asset pipeline
+
+Исходная папка assets/ сейчас очень большая, поэтому есть два профиля.
+
+### Core — обычная тестовая сборка
+
+    make -C 3ds -j2
+
+Перед компиляцией 3ds/tools/prepare_assets.py:
+
+- нарезает character tetrominoes на отдельные клетки;
+- масштабирует нужные большие изображения под лимиты PICA200;
+- конвертирует изображения через tex3ds в .t3x;
+- оставляет MP3 оригинальными и копирует их в RomFS;
+- формирует компактный набор для частых тестов на железе.
+
+### Full — полный data pack
+
+    make -C 3ds full-assets
+
+или:
+
+    python3 3ds/tools/prepare_assets.py --profile full
+
+Full-профиль дополнительно проходит по изображениям и аудио во всём assets/, конвертирует графику и сохраняет romfs:/full/manifest.tsv.
+
+Это отдельный профиль специально потому, что исходные assets/ занимают сотни мегабайт; нет смысла каждый раз пересобирать и копировать весь архив при правке одной строки C++.
 
 ## Управление
 
-- D-Pad Left/Right — движение.
-- D-Pad Down — soft drop.
-- D-Pad Up или Y — hard drop.
-- A — вращение по часовой.
-- B — вращение против часовой.
-- X — HOLD.
-- SELECT — пауза.
+### Главное меню
+
+- D-Pad Up/Down — выбор;
+- A — открыть;
 - START — выход в Homebrew Menu.
-- На Game Over: A — начать заново.
 
-## Сборка
+### Tetris
 
-Нужны devkitPro/devkitARM и группа пакетов `3ds-dev` (libctru, citro3d, citro2d и инструменты упаковки).
+- D-Pad Left/Right — движение;
+- D-Pad Down — soft drop;
+- D-Pad Up или Y — hard drop;
+- A — вращение по часовой;
+- B — вращение против часовой;
+- X — HOLD;
+- SELECT — пауза;
+- START — главное меню.
 
-Из корня репозитория:
+### Катсцены
 
-```bash
-make -C 3ds -j2
-```
+- A — следующий кадр;
+- B/START — назад / пропустить.
+
+### Phobos Room
+
+- A/X — следующий seated state;
+- B/START — назад.
+
+Управление конкретной мини-игрой показывается на нижнем экране.
+
+## Зависимости для сборки
+
+Нужны:
+
+- devkitPro/devkitARM;
+- 3ds-dev;
+- 3ds-mpg123;
+- Python 3;
+- Pillow для build-time подготовки PNG/JPEG.
+
+GitHub Actions устанавливает зависимости автоматически.
 
 Результат:
 
-- `3ds/witch_tetris_3ds.3dsx`
-- `3ds/witch_tetris_3ds.smdh`
+- 3ds/witch_tetris_3ds.3dsx;
+- 3ds/witch_tetris_3ds.smdh.
 
-### Сборка через Docker
+## Установка
 
-Если devkitPro не установлен локально:
+Скопируйте файлы witch_tetris_3ds.3dsx и witch_tetris_3ds.smdh в /3ds/witch_tetris_3ds/ на SD-карте и запускайте через Homebrew Launcher.
 
-```bash
-docker run --rm \
-  -v "$PWD:/project" \
-  -w /project/3ds \
-  devkitpro/devkitarm:latest \
-  bash -lc 'dkp-pacman -S --needed --noconfirm 3ds-dev && make -j2'
-```
-
-## Установка на 3DS
-
-Скопируйте:
-
-```text
-witch_tetris_3ds.3dsx
-witch_tetris_3ds.smdh
-```
-
-в каталог на SD-карте, например:
-
-```text
-/3ds/witch_tetris_3ds/
-```
-
-и запускайте через Homebrew Launcher.
-
-## Следующие этапы порта
-
-1. RomFS и конвертация существующих PNG в atlas/t3x, с ограничением памяти Old 3DS.
-2. Главное меню, SETTINGS/RECORDS и сохранения на SD.
-3. Сюжетные checkpoint-сцены 100/200/300 линий и Phobos room.
-4. Аудио через ndsp: заранее подготовленные консольные форматы вместо runtime MP3-декодирования.
-5. Character tetromino sprites, horror/Lurden наборы и эффекты очистки.
-6. Collection, секретные маршруты и мини-игры.
-7. Оптимизация и тестирование на Old 3DS / New 3DS.
-
-Исходная Pygame-версия не изменяется и остаётся основной reference-реализацией для поведения механик.
+Исходная Pygame-версия остаётся reference-реализацией: при расхождении механики поведение main.py считается эталонным.
