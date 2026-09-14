@@ -1852,20 +1852,59 @@ std::string musicForMini(MiniType type) {
     }
 }
 
-std::vector<std::string> musicPoolForTetris(int lines) {
-    if(lines>=200)
-        return {"romfs:/audio/phase2_guardians.mp3"};
-    if(lines>=100)
+std::vector<std::string> musicPoolForTetris(int lines, bool phobosRoute = false) {
+    if(lines>=200) {
+        if(phobosRoute) {
+            return {
+                "romfs:/audio/phase2_phobos.mp3",
+                "romfs:/audio/music_empty_hollow_1.mp3",
+                "romfs:/audio/music_empty_hollow_2.mp3",
+                "romfs:/audio/music_crucified.mp3",
+                "romfs:/audio/music_crusified2.mp3",
+                "romfs:/audio/music_blunk_snake.mp3",
+                "romfs:/audio/music_snake_4.mp3",
+                "romfs:/audio/music_washing_4.mp3",
+                "romfs:/audio/music_arcade_6.mp3"
+            };
+        }
+        return {
+            "romfs:/audio/phase2_guardians.mp3",
+            "romfs:/audio/music_cutscene_guardians_win.mp3",
+            "romfs:/audio/music_arcade_5.mp3",
+            "romfs:/audio/music_bonus_2.mp3",
+            "romfs:/audio/music_snake_3.mp3",
+            "romfs:/audio/music_washing_3.mp3",
+            "romfs:/audio/music_football_2.mp3"
+        };
+    }
+    if(lines>=100) {
         return {
             "romfs:/audio/phase1_1.mp3",
             "romfs:/audio/phase1_2.mp3",
-            "romfs:/audio/phase1_3.mp3"
+            "romfs:/audio/phase1_3.mp3",
+            "romfs:/audio/music_phase1_hollow.mp3",
+            "romfs:/audio/music_arcade_2.mp3",
+            "romfs:/audio/music_arcade_4.mp3",
+            "romfs:/audio/music_collection_minigames_2.mp3",
+            "romfs:/audio/music_snake_2.mp3",
+            "romfs:/audio/music_washing_2.mp3",
+            "romfs:/audio/music_football_1.mp3"
         };
-    return {"romfs:/audio/phase0.mp3"};
+    }
+    return {
+        "romfs:/audio/phase0.mp3",
+        "romfs:/audio/music_arcade_1.mp3",
+        "romfs:/audio/music_arcade_3.mp3",
+        "romfs:/audio/music_arcade_6.mp3",
+        "romfs:/audio/music_collection_minigames_1.mp3",
+        "romfs:/audio/music_bonus_1.mp3",
+        "romfs:/audio/music_snake_1.mp3",
+        "romfs:/audio/music_washing_1.mp3"
+    };
 }
 
-std::string musicForTetris(int lines) {
-    const std::vector<std::string> pool=musicPoolForTetris(lines);
+std::string musicForTetris(int lines, bool phobosRoute = false) {
+    const std::vector<std::string> pool=musicPoolForTetris(lines,phobosRoute);
     return pool.empty()?std::string():pool.front();
 }
 
@@ -1887,8 +1926,10 @@ int main() {
     C3D_RenderTarget* bottom=C2D_CreateScreenTarget(GFX_BOTTOM,GFX_LEFT);
     g_textBuf=C2D_TextBufNew(8192);
 
-    Mp3Player audio;
+    Mp3Player audio(0);
+    Mp3Player voiceAudio(1);
     audio.init();
+    voiceAudio.init();
 
     Game game;
     Mode mode=Mode::Intro;
@@ -1901,12 +1942,15 @@ int main() {
     int menuIndex=0;
     int cutsceneIndex=0;
     int phobosState=0;
+    int routeChoice=0;
+    int settingsPage=0;
+    int settingsIndex=0;
     int repeatDir=0,repeatTimer=0;
-    bool shown100=false,shown200=false;
+    bool shown100=false,shown200=false,shown300=false;
+    bool guardiansRoute=false,phobosRoute=false;
     bool quit=false;
 
     bool voiceTakeover=false;
-    std::string resumeAfterVoice;
     std::deque<std::string> voiceFollowups;
 
     // Original desktop reaction state. The 18 s global cooldown keeps Phobos
@@ -1932,34 +1976,30 @@ int main() {
     int manualMusicIndex=0;
 
     auto setMusic=[&](const std::string& path,bool loop=true){
-        if(audio.ready() && !voiceTakeover && audio.path()!=path)
+        if(audio.ready() && !path.empty() &&
+           (audio.path()!=path || !audio.playing()))
             audio.play(path,loop);
     };
 
     auto playVoice=[&](const std::string& voicePath)->bool {
-        if(!audio.ready() || voicePath.empty()) return false;
-
-        // A direct story/secret line may replace another line, but the music
-        // to resume stays the original gameplay track.
-        if(!voiceTakeover) resumeAfterVoice=audio.path();
-        else voiceFollowups.clear();
-
-        if(!audio.play(voicePath,false)) return false;
+        if(!voiceAudio.ready() || voicePath.empty() || voiceTakeover) return false;
+        if(!voiceAudio.play(voicePath,false)) return false;
         voiceTakeover=true;
+        audio.setVolume(0.30f);
         return true;
     };
 
     auto gameplayMusicKey=[&]()->int {
-        if(codes.vtdMode) return 3;
-        if(game.lines()>=200) return 2;
-        if(game.lines()>=100) return 1;
+        if(codes.vtdMode) return 30;
+        if(game.lines()>=200) return phobosRoute?21:20;
+        if(game.lines()>=100) return 10;
         return 0;
     };
 
     auto gameplayMusicPool=[&]()->std::vector<std::string> {
         if(codes.vtdMode)
             return {"romfs:/audio/vtd_1.mp3","romfs:/audio/vtd_2.mp3"};
-        return musicPoolForTetris(game.lines());
+        return musicPoolForTetris(game.lines(),phobosRoute);
     };
 
     auto phaseOrSecretMusic=[&]()->std::string {
@@ -1968,12 +2008,49 @@ int main() {
         if(pool.empty()) return std::string();
         if(key!=manualMusicPhase) {
             manualMusicPhase=key;
-            manualMusicIndex=0;
-            if(key==3) manualMusicIndex=static_cast<int>(uiRng()%pool.size());
+            manualMusicIndex=static_cast<int>(uiRng()%pool.size());
         }
         manualMusicIndex%=static_cast<int>(pool.size());
         if(manualMusicIndex<0) manualMusicIndex+=static_cast<int>(pool.size());
         return pool[manualMusicIndex];
+    };
+
+    auto startGameplayMusic=[&](bool forceNew=false){
+        std::vector<std::string> pool=gameplayMusicPool();
+        if(pool.empty()) return;
+        const int key=gameplayMusicKey();
+        if(key!=manualMusicPhase) {
+            manualMusicPhase=key;
+            manualMusicIndex=static_cast<int>(uiRng()%pool.size());
+            forceNew=true;
+        }
+        if(forceNew || !audio.playing()) {
+            manualMusicIndex%=static_cast<int>(pool.size());
+            if(manualMusicIndex<0) manualMusicIndex+=static_cast<int>(pool.size());
+            audio.play(pool[manualMusicIndex],false);
+        }
+    };
+
+    auto advanceGameplayMusic=[&](int delta){
+        std::vector<std::string> pool=gameplayMusicPool();
+        if(pool.empty()) return;
+        const int key=gameplayMusicKey();
+        if(key!=manualMusicPhase) {
+            manualMusicPhase=key;
+            manualMusicIndex=static_cast<int>(uiRng()%pool.size());
+        } else if(pool.size()>1) {
+            if(delta==0) {
+                int next=manualMusicIndex;
+                while(next==manualMusicIndex)
+                    next=static_cast<int>(uiRng()%pool.size());
+                manualMusicIndex=next;
+            } else {
+                const int n=static_cast<int>(pool.size());
+                manualMusicIndex=(manualMusicIndex+delta)%n;
+                if(manualMusicIndex<0) manualMusicIndex+=n;
+            }
+        }
+        audio.play(pool[manualMusicIndex],false);
     };
 
     auto goMenu=[&](){
@@ -1982,8 +2059,9 @@ int main() {
         codes.open=false;
         codes.vtdMode=false;
         voiceTakeover=false;
+        voiceAudio.stop();
+        audio.setVolume(1.0f);
         voiceFollowups.clear();
-        resumeAfterVoice.clear();
         manualMusicPhase=-999;
         setMusic((osGetTime()/1000)%2?"romfs:/audio/menu_1.mp3":"romfs:/audio/menu_2.mp3",true);
     };
@@ -1997,6 +2075,10 @@ int main() {
         codes.open=false;
         if(kind==CutsceneKind::Ending)
             audio.play("romfs:/audio/ending_outro.mp3",false);
+        else if(kind==CutsceneKind::Lines100)
+            audio.play("romfs:/audio/music_cutscene_lines100.mp3",true);
+        else if(kind==CutsceneKind::Lines200)
+            audio.play("romfs:/audio/music_cutscene_lines200.mp3",true);
     };
 
     auto endsWith=[](const std::string& value,const std::string& suffix)->bool {
@@ -2248,28 +2330,12 @@ int main() {
     };
 
     auto stepGameplayMusic=[&](int delta){
-        (void)phaseOrSecretMusic(); // normalize phase/index first
-        std::vector<std::string> pool=gameplayMusicPool();
+        advanceGameplayMusic(delta);
+        const std::vector<std::string> pool=gameplayMusicPool();
         if(pool.empty()) return;
-
-        if(pool.size()==1) {
-            codeMessage("MUSIC: ONLY TRACK");
-            return;
-        }
-
-        const int n=static_cast<int>(pool.size());
-        manualMusicIndex=(manualMusicIndex+delta)%n;
-        if(manualMusicIndex<0) manualMusicIndex+=n;
-        const std::string path=pool[manualMusicIndex];
-
-        if(voiceTakeover)
-            resumeAfterVoice=path;
-        else
-            audio.play(path,true);
-
         char msg[48];
         std::snprintf(msg,sizeof(msg),"MUSIC %d / %d",
-                      manualMusicIndex+1,n);
+                      manualMusicIndex+1,static_cast<int>(pool.size()));
         codeMessage(msg);
     };
 
