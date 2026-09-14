@@ -16,9 +16,9 @@ namespace {
 
 constexpr int BOARD_W = 10;
 constexpr int BOARD_H = 20;
-constexpr int CELL = 11;
-constexpr float BOARD_X = 145.0f;
-constexpr float BOARD_Y = 10.0f;
+constexpr float CELL = 11.7f;
+constexpr float BOARD_X = 141.5f;
+constexpr float BOARD_Y = 3.0f;
 constexpr int LOCK_DELAY_FRAMES = 30;
 constexpr int SOFT_DROP_FRAMES = 2;
 constexpr int FPS = 60;
@@ -620,31 +620,27 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
                     const CodeKeyboardState& codes, float eyeShift = 0.0f) {
     const u32 text = color(245, 240, 250);
     const u32 accent = color(209, 143, 255);
-    const u32 grid = color(130, 105, 150, 118);
+    const u32 grid = color(130, 105, 150, 112);
 
-    // Stereo planes. eyeShift is -slider for the left eye and +slider for the
-    // right eye. Positive disparity pushes the background behind the screen;
-    // negative disparity brings the foreground toward the player.
-    const float bgShift     =  eyeShift * 1.35f;  // far background
-    const float pieceShift  =  eyeShift * 0.35f;  // pieces inside the glass
-    const float glassShift  = -eyeShift * 0.55f;  // glass / board frame
-    const float hudShift    = -eyeShift * 1.05f;  // HUD in front of glass
-    const float phobosShift = -eyeShift * 4.25f;  // strongest comfortable pop-out
+    const float bgShift     =  eyeShift * 1.35f;
+    const float pieceShift  =  eyeShift * 0.30f;
+    const float glassShift  = -eyeShift * 0.50f;
+    const float hudShift    = -eyeShift * 0.90f;
+    const float phobosShift = -eyeShift * 3.85f;
 
     C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
 
-    // Plane 1 — far background. Overscan prevents black edges at full slider.
-    drawAssetFit(phaseBackground(game.lines()), -7 + bgShift, -4, 414, 248, 0.08f, true, 1.0f);
-    C2D_DrawRectSolid(0, 0, 0.18f, 400, 240, color(0,0,0,24));
+    // The Tetris well is now the visual centre of the 400x240 display.
+    drawAssetFit(phaseBackground(game.lines()), -7 + bgShift, -4, 414, 248,
+                 0.08f, true, 1.0f);
+    C2D_DrawRectSolid(0, 0, 0.18f, 400, 240, color(0,0,0,22));
 
-    // The board's dark interior sits behind the pieces.
-    C2D_DrawRectSolid(BOARD_X - 1, BOARD_Y - 1, 0.34f,
-                      BOARD_W * CELL + 2, BOARD_H * CELL + 2,
-                      color(8,8,15,178));
+    C2D_DrawRectSolid(BOARD_X - 2, BOARD_Y - 1, 0.34f,
+                      BOARD_W * CELL + 4, BOARD_H * CELL + 2,
+                      color(7,7,14,192));
 
-    // Plane 2 — locked/current pieces. They deliberately render before the
-    // glass grid so the player reads them as being inside the Tetris well.
+    // Pieces live behind the glass plane.
     const auto& board = game.board();
     for (int y = 0; y < BOARD_H; ++y) {
         for (int x = 0; x < BOARD_W; ++x) {
@@ -657,11 +653,11 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     }
 
     if (!game.gameOver()) {
-        drawPieceAt(game.current(), game.ghostY(), true, pieceShift, 0.50f);
+        drawPieceAt(game.current(), game.ghostY(), true, pieceShift, 0.49f);
         drawPieceAt(game.current(), game.current().y, false, pieceShift, 0.52f);
     }
 
-    // Plane 3 — the "glass": grid and frame float slightly in front of pieces.
+    // Glass/grid plane, intentionally in front of the blocks.
     const float glassX = BOARD_X + glassShift;
     for (int x = 1; x < BOARD_W; ++x)
         C2D_DrawRectSolid(glassX + x * CELL, BOARD_Y, 0.60f,
@@ -670,57 +666,53 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
         C2D_DrawRectSolid(glassX, BOARD_Y + y * CELL, 0.60f,
                           BOARD_W * CELL, 1, grid);
 
-    const u32 glassEdge = color(191, 128, 225, 205);
+    const u32 glassEdge = color(191, 128, 225, 220);
     const u32 glassShine = color(245, 222, 255, 105);
-    C2D_DrawRectSolid(glassX - 2, BOARD_Y - 2, 0.62f,
+    C2D_DrawRectSolid(glassX - 2, BOARD_Y, 0.62f,
                       BOARD_W * CELL + 4, 2, glassEdge);
-    C2D_DrawRectSolid(glassX - 2, BOARD_Y + BOARD_H * CELL, 0.62f,
+    C2D_DrawRectSolid(glassX - 2, BOARD_Y + BOARD_H * CELL - 2, 0.62f,
                       BOARD_W * CELL + 4, 2, glassEdge);
-    C2D_DrawRectSolid(glassX - 2, BOARD_Y - 2, 0.62f,
-                      2, BOARD_H * CELL + 4, glassEdge);
-    C2D_DrawRectSolid(glassX + BOARD_W * CELL, BOARD_Y - 2, 0.62f,
-                      2, BOARD_H * CELL + 4, glassEdge);
-    C2D_DrawRectSolid(glassX, BOARD_Y, 0.63f, 2, BOARD_H * CELL, glassShine);
-    C2D_DrawRectSolid(glassX, BOARD_Y, 0.63f, BOARD_W * CELL, 2, glassShine);
+    C2D_DrawRectSolid(glassX - 2, BOARD_Y, 0.62f,
+                      2, BOARD_H * CELL, glassEdge);
+    C2D_DrawRectSolid(glassX + BOARD_W * CELL, BOARD_Y, 0.62f,
+                      2, BOARD_H * CELL, glassEdge);
+    C2D_DrawRectSolid(glassX, BOARD_Y, 0.63f,
+                      2, BOARD_H * CELL, glassShine);
 
-    // Plane 4 — HUD. It has a little stereo lift, but less than Phobos so text
-    // remains comfortable and readable at maximum 3D slider.
-    drawPanel(5 + hudShift, 5, 128, 230, accent, 0.66f);
-    drawPanel(267 + hudShift, 5, 128, 230, accent, 0.66f);
+    // Compact floating HUD — no more three full-height framed columns.
+    C2D_DrawRectSolid(7 + hudShift, 7, 0.65f, 116, 111, color(5,5,12,112));
+    C2D_DrawRectSolid(277 + hudShift, 7, 0.65f, 116, 105, color(5,5,12,112));
+    C2D_DrawRectSolid(277 + hudShift, 119, 0.65f, 116, 106, color(5,5,12,105));
 
     char buf[96];
-    drawText("W.I.T.C.H.", 15 + hudShift, 14, 0.55f, accent);
-    drawText("TETRIS", 15 + hudShift, 37, 0.47f, text);
+    drawText("W.I.T.C.H. TETRIS", 14 + hudShift, 13, 0.38f, accent);
     std::snprintf(buf, sizeof(buf), "LINES %d", game.lines());
-    drawText(buf, 15 + hudShift, 66, 0.36f, text);
+    drawText(buf, 14 + hudShift, 43, 0.34f, text);
     std::snprintf(buf, sizeof(buf), "SCORE %d", game.score());
-    drawText(buf, 15 + hudShift, 85, 0.36f, text);
+    drawText(buf, 14 + hudShift, 62, 0.34f, text);
     std::snprintf(buf, sizeof(buf), "SPEED %df", game.speedFrames());
-    drawText(buf, 15 + hudShift, 104, 0.36f, text);
+    drawText(buf, 14 + hudShift, 81, 0.34f, text);
 
     const char* phase = game.lines() >= 200 ? "GUARDIANS" :
                         (game.lines() >= 100 ? "RESISTANCE" : "PHOBOS");
-    drawText(phase, 15 + hudShift, 124, 0.31f, accent);
+    drawText(phase, 14 + hudShift, 101, 0.28f, accent);
 
-    drawText("NEXT", 279 + hudShift, 16, 0.38f, accent);
-    drawCharacterMiniPiece(game.nextKind(), 306 + hudShift, 43, 13.0f, 0.83f);
-    drawText(PIECE_CHARACTERS[game.nextKind()], 278 + hudShift, 88, 0.27f, text);
+    drawText("NEXT", 285 + hudShift, 14, 0.34f, accent);
+    drawCharacterMiniPiece(game.nextKind(), 315 + hudShift, 38, 12.0f, 0.83f);
+    drawText(PIECE_CHARACTERS[game.nextKind()], 284 + hudShift, 88, 0.24f, text);
 
-    drawText("HOLD", 279 + hudShift, 112, 0.38f, accent);
+    drawText("HOLD", 285 + hudShift, 126, 0.34f, accent);
     if (game.holdKind() >= 0) {
-        drawCharacterMiniPiece(game.holdKind(), 306 + hudShift, 139, 12.0f, 0.83f);
-        drawText(PIECE_CHARACTERS[game.holdKind()], 278 + hudShift, 184, 0.27f, text);
+        drawCharacterMiniPiece(game.holdKind(), 315 + hudShift, 151, 11.0f, 0.83f);
+        drawText(PIECE_CHARACTERS[game.holdKind()], 284 + hudShift, 199, 0.24f, text);
     }
-    drawText("START: MENU", 279 + hudShift, 211, 0.27f, text);
+    drawText("START MENU", 284 + hudShift, 214, 0.22f, text);
 
-    // Plane 5 — Phobos: foreground character with a subtle rim/glow. The glow
-    // reinforces the pop-out effect without pushing the UI text too far.
+    // Phobos remains visible but no longer occupies a whole HUD column.
     const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
-    const float phobosX = 20 + phobosShift;
-    C2D_DrawRectSolid(phobosX + 14, 143, 0.73f, 80, 78, color(168,90,215,26));
-    C2D_DrawRectSolid(phobosX + 18, 139, 0.74f, 72, 84, color(220,160,255,18));
-    drawAssetFit(phobosKey, phobosX, 132, 108, 98, 0.78f, false, 1.0f);
-    drawText("PHOBOS", phobosX + 45, 212, 0.26f, color(225,170,255));
+    const float phobosX = 17 + phobosShift;
+    C2D_DrawCircleSolid(phobosX + 52, 177, 0.71f, 42, color(170,90,215,18));
+    drawAssetFit(phobosKey, phobosX, 121, 108, 111, 0.78f, false, 1.0f);
 
     if (codes.matrixFrames > 0) {
         C2D_DrawRectSolid(0,0,0.88f,400,240,color(0,90,20,70));
@@ -1590,26 +1582,49 @@ void renderMiniMenu(C3D_RenderTarget* top,C3D_RenderTarget* bottom,int selected)
     drawText("A — start     B / START — menu",12,207,0.38f,accent);
 }
 
-void renderPhobosRoom(C3D_RenderTarget* top,C3D_RenderTarget* bottom,int state) {
+void renderPhobosRoom(C3D_RenderTarget* top,C3D_RenderTarget* bottom,
+                      int state,float eyeShift=0.0f) {
     const u32 accent=color(210,140,255),text=color(245,240,250);
+
+    const float bgShift=-eyeShift*0.9f;
+    const float phobosShift=-eyeShift*2.2f;
+    const float tableShift=-eyeShift*3.1f;
+
     C2D_TargetClear(top,color(5,3,8));
     C2D_SceneBegin(top);
-    drawFullscreenAsset("phobos_room_bg");
-    char key[32];
-    std::snprintf(key,sizeof(key),"phobos_room_state%d",state%6);
-    drawAssetFit(key,103,25,194,190,0.52f);
-    drawAssetFit("phobos_room_table",0,142,400,98,0.70f,true);
-    drawPanel(15,12,190,42,accent,0.80f);
-    drawText("PHOBOS ROOM",28,24,0.47f,text);
 
-    C2D_TargetClear(bottom,color(11,7,18));
+    // Desktop reference: room -> large seated Phobos -> table foreground.
+    drawAssetFit("phobos_room_bg",-6+bgShift,-3,412,246,0.08f,true,1.0f);
+    C2D_DrawRectSolid(0,0,0.20f,400,240,color(0,0,0,20));
+
+    char key[40];
+    std::snprintf(key,sizeof(key),"phobos_room_pose%d",state%6);
+    drawAssetFit(key,88+phobosShift,23,224,194,0.53f,false,1.0f);
+
+    // The foreground table masks the lower body exactly like the desktop room.
+    drawAssetFit("phobos_room_table",-4+tableShift,142,408,98,0.72f,true,1.0f);
+
+    // Very small title only; the room itself is the scene.
+    drawText("PHOBOS ROOM",12,10,0.30f,color(230,180,250));
+
+    C2D_TargetClear(bottom,color(8,5,13));
     C2D_SceneBegin(bottom);
-    drawText("PHOBOS ROOM — NATIVE 3DS TEST",12,15,0.45f,accent);
-    drawText("Original layered room artwork is active.",12,58,0.37f,text);
-    drawText("A / X — change seated state",12,103,0.42f,text);
-    drawText("B / START — return to menu",12,132,0.42f,text);
-    char buf[48]; std::snprintf(buf,sizeof(buf),"POSE %d / 6",state+1);
-    drawText(buf,12,201,0.38f,accent);
+
+    // Dialogue-oriented lower screen, matching the original composition rather
+    // than the previous debug/status card.
+    drawPanel(9,12,302,158,accent,0.30f);
+    drawText("ФОБОС",20,24,0.43f,accent);
+    drawText("Левый Shift?",20,67,0.37f,text);
+    drawText("Раньше он мог быть HOLD.",20,94,0.34f,text);
+
+    C2D_DrawRectSolid(12,181,0.66f,140,38,color(88,45,118,225));
+    drawText("A / TOUCH: NEXT",27,193,0.34f,text);
+    drawText("X: POSE",177,187,0.30f,accent);
+    drawText("B / START: MENU",177,208,0.28f,text);
+
+    char buf[48];
+    std::snprintf(buf,sizeof(buf),"POSE %d / 6",state+1);
+    drawText(buf,18,223,0.25f,color(176,125,205));
 }
 
 void handleHorizontalRepeat(Game& game,u32 down,u32 held,int& repeatDir,int& repeatTimer) {
@@ -1995,7 +2010,7 @@ int main() {
             }
             else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(topTarget,bottom,cutsceneIndex);
             else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed);
-            else renderPhobosRoom(topTarget,bottom,phobosState);
+            else renderPhobosRoom(topTarget,bottom,phobosState,eye);
         };
 
         renderScene(topLeft,-slider);
