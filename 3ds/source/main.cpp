@@ -540,8 +540,7 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     if (game.holdKind() >= 0)
         drawMiniPiece(game.holdKind(), 310, 139, 10.0f);
 
-    drawText("NO PORTRAITS", 280, 196, 0.27f, text);
-    drawText("JUST PIECES", 280, 212, 0.27f, text);
+    drawText("START: MENU", 280, 205, 0.28f, text);
 
     if (game.paused()) {
         drawPanel(92, 78, 216, 82, accent, 0.85f);
@@ -633,7 +632,7 @@ const char* CUTSCENE_ITEMS[] = {
 };
 constexpr int CUTSCENE_COUNT = sizeof(CUTSCENE_ITEMS) / sizeof(CUTSCENE_ITEMS[0]);
 
-void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected) {
+void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected, const Mp3Player& audio) {
     const u32 accent = color(211,143,255);
     const u32 text = color(245,240,250);
 
@@ -656,12 +655,20 @@ void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected) {
 
     C2D_TargetClear(bottom, color(13,10,22));
     C2D_SceneBegin(bottom);
-    drawText("PHASE 2 CONTENT BUILD", 12, 14, 0.52f, accent);
-    drawText("Original backgrounds + character blocks", 12, 55, 0.38f, text);
-    drawText("Original MP3 music streamed through ndsp", 12, 78, 0.38f, text);
-    drawText("Intro / 100 / 200 / ending previews", 12, 101, 0.38f, text);
-    drawText("Mini-games temporarily removed for redesign", 12, 124, 0.34f, text);
-    drawText("Phobos room visual test", 12, 147, 0.38f, text);
+    drawText("W.I.T.C.H. TETRIS 3DS", 12, 14, 0.52f, accent);
+    drawText("Tetris + story + Phobos Room", 12, 53, 0.38f, text);
+    drawText("Mini-games are hidden until redesign.", 12, 78, 0.34f, text);
+
+    drawText("AUDIO STATUS", 12, 112, 0.34f, accent);
+    std::string audioStatus = audio.status();
+    const bool audioError = audioStatus.find("FAIL") != std::string::npos;
+    const u32 audioColor = audioError ? color(245,105,115) : text;
+    drawText(audioStatus.substr(0, 34), 12, 134, 0.29f, audioColor);
+    if (audioStatus.size() > 34)
+        drawText(audioStatus.substr(34, 34), 12, 151, 0.29f, audioColor);
+    if (audioError)
+        drawText("Send me this red line if there is no sound.", 12, 177, 0.29f, color(245,170,180));
+
     drawText("D-Pad: select    A: open    START: exit", 12, 207, 0.36f, accent);
 }
 
@@ -1273,7 +1280,7 @@ int main() {
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 
         if(mode==Mode::Intro) renderIntro(top,bottom,introScene);
-        else if(mode==Mode::Menu) renderMenu(top,bottom,menuIndex);
+        else if(mode==Mode::Menu) renderMenu(top,bottom,menuIndex,audio);
         else if(mode==Mode::Tetris) {renderTetrisTop(game,top);renderTetrisBottom(game,bottom,audio);}
         else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(top,bottom,cutsceneIndex);
         else if(mode==Mode::Cutscene) renderCutscene(top,bottom,cutscene);
