@@ -30,15 +30,24 @@ jobs:
           dkp-pacman -S --needed --noconfirm 3ds-dev 3ds-mpg123
           apt-get update -qq
           apt-get install -y -qq python3-pil
+          command -v makerom
+          command -v bannertool
 
-      - name: Build content-enabled .3dsx
-        run: make -C 3ds -j2
+      - name: Build content-enabled 3DSX + CIA
+        run: make -C 3ds -j2 cia
 
-      - name: Upload homebrew build
+      - name: Upload 3DSX homebrew build
         uses: actions/upload-artifact@v4
         with:
           name: witch-tetris-3ds
           path: |
             3ds/witch_tetris_3ds.3dsx
             3ds/witch_tetris_3ds.smdh
+          if-no-files-found: error
+
+      - name: Upload installable CIA
+        uses: actions/upload-artifact@v4
+        with:
+          name: witch-tetris-3ds-cia
+          path: 3ds/witch_tetris_3ds.cia
           if-no-files-found: error
