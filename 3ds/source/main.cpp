@@ -17,7 +17,7 @@ namespace {
 constexpr int BOARD_W = 10;
 constexpr int BOARD_H = 20;
 constexpr int CELL = 11;
-constexpr float BOARD_X = 18.0f;
+constexpr float BOARD_X = 145.0f;
 constexpr float BOARD_Y = 10.0f;
 constexpr int LOCK_DELAY_FRAMES = 30;
 constexpr int SOFT_DROP_FRAMES = 2;
@@ -487,64 +487,21 @@ std::string phaseBackground(int lines) {
 void renderTetrisTop(const Game& game, C3D_RenderTarget* target) {
     const u32 text = color(245, 240, 250);
     const u32 accent = color(209, 143, 255);
+    const u32 grid = color(102, 88, 118, 105);
 
     C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
     drawFullscreenAsset(phaseBackground(game.lines()));
-    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,35));
+    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,32));
 
-    // 3DS layout: the top screen is the "Phobos stage", like the right side
-    // of the desktop original.  Gameplay itself lives on the touch screen.
-    drawPanel(8, 8, 157, 224, accent, 0.28f);
+    // Keep the wide 400x240 screen focused on Tetris, like the desktop game.
+    // Side panels only carry compact HUD and tetromino silhouettes.
+    drawPanel(5, 5, 128, 230, accent, 0.28f);
+    drawPanel(140, 5, 120, 230, accent, 0.28f);
+    drawPanel(267, 5, 128, 230, accent, 0.28f);
 
-    char buf[96];
-    drawText("W.I.T.C.H. TETRIS", 18, 18, 0.52f, accent);
-    std::snprintf(buf, sizeof(buf), "LINES  %d", game.lines());
-    drawText(buf, 18, 54, 0.42f, text);
-    std::snprintf(buf, sizeof(buf), "SCORE  %d", game.score());
-    drawText(buf, 18, 76, 0.42f, text);
-    std::snprintf(buf, sizeof(buf), "SPEED  %df", game.speedFrames());
-    drawText(buf, 18, 98, 0.42f, text);
-
-    const char* phase = game.lines() >= 200 ? "GUARDIANS 200+" :
-                        (game.lines() >= 100 ? "RESISTANCE 100-199" : "PHOBOS 0-99");
-    drawText(phase, 18, 122, 0.31f, accent);
-
-    drawText("NEXT", 18, 151, 0.34f, text);
-    drawMiniPiece(game.nextKind(), 72, 148, 8.0f);
-    drawText("HOLD", 18, 190, 0.34f, text);
-    if (game.holdKind() >= 0) drawMiniPiece(game.holdKind(), 72, 187, 8.0f);
-
-    // Phobos is always present during the story-driven Tetris phases.
-    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
-    drawAssetFit(phobosKey, 158, 8, 238, 226, 0.56f, false, 1.0f);
-    drawText("PHOBOS", 327, 211, 0.34f, accent);
-
-    if (game.paused()) {
-        drawPanel(92, 78, 216, 82, accent, 0.85f);
-        drawText("PAUSED", 146, 96, 0.66f, accent);
-        drawText("SELECT: resume", 125, 128, 0.40f, text);
-    } else if (game.gameOver()) {
-        drawPanel(78, 72, 244, 98, color(225,75,95), 0.85f);
-        drawText("GAME OVER", 120, 92, 0.66f, color(245,100,115));
-        drawText("A: restart", 145, 126, 0.42f, text);
-        drawText("START: menu", 137, 147, 0.36f, text);
-    }
-}
-
-void renderTetrisBottom(const Game& game, C3D_RenderTarget* target, const Mp3Player& audio) {
-    const u32 text = color(238, 234, 246);
-    const u32 accent = color(205, 140, 255);
-    const u32 grid = color(102, 88, 118, 105);
-
-    C2D_TargetClear(target, color(12, 9, 20));
-    C2D_SceneBegin(target);
-
-    // The board is deliberately on the lower 320x240 screen.  20 rows x 11px
-    // use 220px, leaving a compact control/status column to the right.
-    drawPanel(12, 5, 122, 230, accent, 0.28f);
-    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL, color(8,8,15,210));
-
+    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL,
+                      color(8,8,15,190));
     for (int x = 1; x < BOARD_W; ++x)
         C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.46f, 1, BOARD_H * CELL, grid);
     for (int y = 1; y < BOARD_H; ++y)
@@ -563,34 +520,77 @@ void renderTetrisBottom(const Game& game, C3D_RenderTarget* target, const Mp3Pla
         drawPieceAt(game.current(), game.current().y, false);
     }
 
-    drawPanel(141, 5, 174, 230, accent, 0.28f);
-    drawText("CONTROLS", 153, 15, 0.40f, accent);
-    drawText("D-PAD  move/drop", 153, 46, 0.32f, text);
-    drawText("A / B  rotate", 153, 66, 0.32f, text);
-    drawText("X      HOLD", 153, 86, 0.32f, text);
-    drawText("Y / UP hard drop", 153, 106, 0.32f, text);
-    drawText("SELECT pause", 153, 126, 0.32f, text);
-    drawText("START  menu", 153, 146, 0.32f, text);
+    char buf[96];
+    drawText("W.I.T.C.H.", 16, 16, 0.56f, accent);
+    drawText("TETRIS", 16, 39, 0.48f, text);
+    std::snprintf(buf, sizeof(buf), "LINES %d", game.lines());
+    drawText(buf, 16, 76, 0.38f, text);
+    std::snprintf(buf, sizeof(buf), "SCORE %d", game.score());
+    drawText(buf, 16, 96, 0.38f, text);
+    std::snprintf(buf, sizeof(buf), "SPEED %df", game.speedFrames());
+    drawText(buf, 16, 116, 0.38f, text);
 
-    drawText("AUDIO", 153, 174, 0.32f, accent);
-    std::string status = audio.status();
-    if (status.size() > 25) {
-        const std::size_t split = status.find(' ', 20);
-        if (split != std::string::npos && split < 34) {
-            drawText(status.substr(0, split), 153, 194, 0.27f,
-                     audio.ready() ? text : color(245,110,120));
-            drawText(status.substr(split + 1), 153, 210, 0.27f,
-                     audio.ready() ? text : color(245,110,120));
-        } else {
-            drawText(status.substr(0, 25), 153, 194, 0.27f,
-                     audio.ready() ? text : color(245,110,120));
-            drawText(status.substr(25), 153, 210, 0.27f,
-                     audio.ready() ? text : color(245,110,120));
-        }
-    } else {
-        drawText(status, 153, 198, 0.27f,
-                 audio.ready() ? text : color(245,110,120));
+    const char* phase = game.lines() >= 200 ? "GUARDIANS" :
+                        (game.lines() >= 100 ? "RESISTANCE" : "PHOBOS");
+    drawText(phase, 16, 144, 0.34f, accent);
+
+    drawText("NEXT", 280, 18, 0.39f, accent);
+    drawMiniPiece(game.nextKind(), 310, 50, 10.0f);
+    drawText("HOLD", 280, 106, 0.39f, accent);
+    if (game.holdKind() >= 0)
+        drawMiniPiece(game.holdKind(), 310, 139, 10.0f);
+
+    drawText("NO PORTRAITS", 280, 196, 0.27f, text);
+    drawText("JUST PIECES", 280, 212, 0.27f, text);
+
+    if (game.paused()) {
+        drawPanel(92, 78, 216, 82, accent, 0.85f);
+        drawText("PAUSED", 146, 96, 0.66f, accent);
+        drawText("SELECT: resume", 125, 128, 0.40f, text);
+    } else if (game.gameOver()) {
+        drawPanel(78, 72, 244, 98, color(225,75,95), 0.85f);
+        drawText("GAME OVER", 120, 92, 0.66f, color(245,100,115));
+        drawText("A: restart", 145, 126, 0.42f, text);
+        drawText("START: menu", 137, 147, 0.36f, text);
     }
+}
+
+void renderTetrisBottom(const Game& game, C3D_RenderTarget* target, const Mp3Player& audio) {
+    const u32 text = color(238, 234, 246);
+    const u32 accent = color(205, 140, 255);
+
+    C2D_TargetClear(target, color(12, 9, 20));
+    C2D_SceneBegin(target);
+
+    // Bottom screen is the Phobos/HUD companion screen.  The gameplay board
+    // stays on the top screen; no oversized NEXT/HOLD portraits are used.
+    drawAssetFit(phaseBackground(game.lines()), 0, 0, 320, 240, 0.05f, true, 1.0f);
+    C2D_DrawRectSolid(0, 0, 0.20f, 320, 240, color(0,0,0,65));
+
+    drawPanel(7, 7, 172, 226, accent, 0.28f);
+
+    drawText("CONTROLS", 17, 17, 0.40f, accent);
+    drawText("D-PAD  MOVE / DROP", 17, 47, 0.30f, text);
+    drawText("A / B  ROTATE", 17, 66, 0.30f, text);
+    drawText("X      HOLD", 17, 85, 0.30f, text);
+    drawText("Y / UP HARD DROP", 17, 104, 0.30f, text);
+    drawText("SELECT PAUSE", 17, 123, 0.30f, text);
+    drawText("START  MENU", 17, 142, 0.30f, text);
+
+    drawText("AUDIO STATUS", 17, 170, 0.31f, accent);
+    std::string status = audio.status();
+    const bool audioError = status.find("FAIL") != std::string::npos;
+    const u32 audioColor = audioError ? color(245,105,115) : text;
+    if (status.size() > 22) {
+        drawText(status.substr(0, 22), 17, 190, 0.25f, audioColor);
+        drawText(status.substr(22, 22), 17, 207, 0.25f, audioColor);
+    } else {
+        drawText(status, 17, 196, 0.25f, audioColor);
+    }
+
+    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
+    drawAssetFit(phobosKey, 176, 8, 140, 224, 0.56f, false, 1.0f);
+    drawText("PHOBOS", 248, 211, 0.30f, accent);
 }
 
 enum class Mode {
@@ -620,7 +620,6 @@ struct CutsceneState {
 const char* MENU_ITEMS[] = {
     "NEW GAME",
     "CUTSCENES",
-    "MINI-GAMES",
     "PHOBOS ROOM",
     "EXIT"
 };
@@ -661,7 +660,7 @@ void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected) {
     drawText("Original backgrounds + character blocks", 12, 55, 0.38f, text);
     drawText("Original MP3 music streamed through ndsp", 12, 78, 0.38f, text);
     drawText("Intro / 100 / 200 / ending previews", 12, 101, 0.38f, text);
-    drawText("4 playable original mini-game ports", 12, 124, 0.38f, text);
+    drawText("Mini-games temporarily removed for redesign", 12, 124, 0.34f, text);
     drawText("Phobos room visual test", 12, 147, 0.38f, text);
     drawText("D-Pad: select    A: open    START: exit", 12, 207, 0.36f, accent);
 }
@@ -1159,13 +1158,11 @@ int main() {
     audio.init();
 
     Game game;
-    MiniGame mini;
     Mode mode=Mode::Intro;
     CutsceneState cutscene;
     int introScene=0;
     int menuIndex=0;
     int cutsceneIndex=0;
-    int miniIndex=0;
     int phobosState=0;
     int repeatDir=0,repeatTimer=0;
     bool shown100=false,shown200=false;
@@ -1216,8 +1213,6 @@ int main() {
                 } else if(menuIndex==1) {
                     mode=Mode::CutsceneMenu;cutsceneIndex=0;
                 } else if(menuIndex==2) {
-                    mode=Mode::MiniMenu;miniIndex=0;
-                } else if(menuIndex==3) {
                     mode=Mode::PhobosRoom;phobosState=0;
                     setMusic("romfs:/audio/phobos_room.mp3",true);
                 } else quit=true;
@@ -1269,23 +1264,6 @@ int main() {
                     else setMusic("romfs:/audio/menu_1.mp3",true);
                 }
             }
-        } else if(mode==Mode::MiniMenu) {
-            if(down&(KEY_B|KEY_START)) goMenu();
-            if(down&KEY_UP) miniIndex=(miniIndex+static_cast<int>(MiniType::Count)-1)%static_cast<int>(MiniType::Count);
-            if(down&KEY_DOWN) miniIndex=(miniIndex+1)%static_cast<int>(MiniType::Count);
-            if(down&KEY_A) {
-                mini.reset(static_cast<MiniType>(miniIndex));
-                mode=Mode::MiniGame;
-                setMusic(musicForMini(mini.type()),true);
-            }
-        } else if(mode==Mode::MiniGame) {
-            if(down&(KEY_B|KEY_START)) {
-                mode=Mode::MiniMenu;
-                setMusic("romfs:/audio/menu_1.mp3",true);
-            } else {
-                mini.handle(down);
-                mini.update();
-            }
         } else if(mode==Mode::PhobosRoom) {
             if(down&(KEY_B|KEY_START)) goMenu();
             else if(down&(KEY_A|KEY_X)) phobosState=(phobosState+1)%6;
@@ -1299,8 +1277,6 @@ int main() {
         else if(mode==Mode::Tetris) {renderTetrisTop(game,top);renderTetrisBottom(game,bottom,audio);}
         else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(top,bottom,cutsceneIndex);
         else if(mode==Mode::Cutscene) renderCutscene(top,bottom,cutscene);
-        else if(mode==Mode::MiniMenu) renderMiniMenu(top,bottom,miniIndex);
-        else if(mode==Mode::MiniGame) {mini.renderTop(top);mini.renderBottom(bottom);}
         else renderPhobosRoom(top,bottom,phobosState);
 
         C3D_FrameEnd(0);
