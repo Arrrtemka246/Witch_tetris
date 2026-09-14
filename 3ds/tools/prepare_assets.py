@@ -113,6 +113,10 @@ CORE_IMAGES = {
     "phobos_room_bg": ("cutscenes/phobos_room/background_v2.png", "cover"),
     "phobos_room_table": ("cutscenes/phobos_room/table_foreground.png", "fit"),
 
+    # Secret-code visuals from the desktop build.
+    "jetix_logo": ("secrets/jetix/Jetix.png", "actor"),
+    "vtd_observer": ("menu/vtd/observer.jpg", "actor"),
+
 }
 
 CORE_AUDIO = {
@@ -146,6 +150,36 @@ CORE_AUDIO = {
     "react_hold_hint.mp3": "audio/voice/phobos/hold_hint.mp3",
     "react_pause_hint.mp3": "audio/voice/phobos/pause_hint.mp3",
     "react_layout.mp3": "audio/voice/phobos/layout_wont_help.mp3",
+
+    # Restored music library. Tracks that were previously arcade/collection-only
+    # are now available to the phase shuffle on 3DS as requested.
+    "phase2_phobos_alt.mp3": "audio/music/phobos_route/Phobos_theme_1.mp3",
+    "music_collection_minigames_1.mp3": "audio/collection/minigames_1.mp3",
+    "music_collection_minigames_2.mp3": "audio/collection/minigames_2.mp3",
+    "music_arcade_1.mp3": "audio/minigames/arcade_1.mp3",
+    "music_arcade_2.mp3": "audio/minigames/arcade_2.mp3",
+    "music_arcade_3.mp3": "audio/minigames/arcade_3.mp3",
+    "music_arcade_4.mp3": "audio/minigames/arcade_4.mp3",
+    "music_arcade_5.mp3": "audio/minigames/arcade_5.mp3",
+    "music_bonus_1.mp3": "audio/minigames/bonus_1.mp3",
+    "music_bonus_2.mp3": "audio/minigames/bonus_2.mp3",
+    "music_crucified.mp3": "audio/minigames/crucified.mp3",
+    "music_crusified2.mp3": "audio/minigames/crusified2.mp3",
+    "music_empty_hollow_1.mp3": "audio/minigames/phobos_empty_hollow_1.mp3",
+    "music_empty_hollow_2.mp3": "audio/minigames/phobos_empty_hollow_2.mp3",
+    "music_blunk_snake.mp3": "audio/minigames/blunk_snake.mp3",
+    "music_snake_1.mp3": "audio/minigames/snake_1.mp3",
+    "music_snake_2.mp3": "audio/minigames/snake_2.mp3",
+    "music_snake_3.mp3": "audio/minigames/snake_3.mp3",
+    "music_snake_4.mp3": "audio/minigames/snake_4.mp3",
+    "music_washing_1.mp3": "audio/minigames/blunk_washing_1.mp3",
+    "music_washing_2.mp3": "audio/minigames/blunk_washing_2.mp3",
+    "music_washing_3.mp3": "audio/minigames/blunk_washing_3.mp3",
+    "music_washing_4.mp3": "audio/minigames/blunk_washing_4.mp3",
+    "music_football_1.mp3": "audio/reserve/football_1.mp3",
+    "music_football_2.mp3": "audio/reserve/football_2.mp3",
+    "music_sobak_1.mp3": "audio/reserve/sobak_1.mp3",
+    "music_sobak_2.mp3": "audio/reserve/sobak_2.mp3",
 
     "ending_outro.mp3": "audio/music/ending/witch_end_outro.mp3",
 }
