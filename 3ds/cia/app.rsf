@@ -71,6 +71,14 @@ AccessControlInfo:
    - CreateSeed
    - UseCardSpi
 
+  # Required by libctru/ndsp and Citro3D in an installed CIA.
+  # Without the DSP mapping ndspInit() faults around 0x1FF5xxxx instead of
+  # returning a normal DSP-firmware error.
+  IORegisterMapping:
+   - 1ff00000-1ff7ffff
+  MemoryMapping:
+   - 1f000000-1f5fffff:r
+
   SystemCallAccess:
     ArbitrateAddress: 34
     Break: 60
