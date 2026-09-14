@@ -760,9 +760,10 @@ const char* MINI_NAMES[] = {
 };
 
 struct Drop {
-    int lane = 0;
-    float y = 0;
-    bool active = false;
+    int lane;
+    float y;
+    bool active;
+    Drop(int l = 0, float py = 0.0f, bool a = false) : lane(l), y(py), active(a) {}
 };
 
 class MiniGame {
@@ -779,7 +780,7 @@ public:
 
         cover_=1; dangerLane_=static_cast<int>(rng_()%4); dangerTimer_=100;
 
-        waterLane_=2; waterStored_=0; waterDrop_={static_cast<int>(rng_()%5), 15.0f, true};
+        waterLane_=2; waterStored_=0; waterDrop_=Drop(static_cast<int>(rng_()%5), 15.0f, true);
     }
 
     MiniType type() const { return type_; }
@@ -861,7 +862,7 @@ public:
             const int level=tick_/(18*FPS);
             const float speed=0.75f+level*0.16f;
             if(!waterDrop_.active) {
-                waterDrop_={static_cast<int>(rng_()%5),18.0f,true};
+                waterDrop_=Drop(static_cast<int>(rng_()%5),18.0f,true);
             }
             waterDrop_.y+=speed;
             if(waterDrop_.y>=190.0f) {
