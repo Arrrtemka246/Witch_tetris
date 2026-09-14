@@ -1,4 +1,6 @@
 build/
+romfs/
+.asset_build/
 *.3dsx
 *.smdh
 *.elf
