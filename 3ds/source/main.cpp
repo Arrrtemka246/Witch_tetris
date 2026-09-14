@@ -118,6 +118,11 @@ public:
         clearEventSerial_ = 0;
         lastCleared_ = 0;
         lastClearKind_ = -1;
+        clearPending_ = false;
+        clearRowCount_ = 0;
+        clearFrames_ = 0;
+        clearTotal_ = 0;
+        clearRows_.fill(-1);
         nextKind_ = randomPiece();
         spawnPiece();
     }
@@ -158,6 +163,13 @@ public:
     int clearEventSerial() const { return clearEventSerial_; }
     int lastCleared() const { return lastCleared_; }
     int lastClearKind() const { return lastClearKind_; }
+    bool clearPending() const { return clearPending_; }
+    int clearRowCount() const { return clearRowCount_; }
+    int clearRow(int index) const {
+        return (index >= 0 && index < clearRowCount_) ? clearRows_[index] : -1;
+    }
+    int clearFrames() const { return clearFrames_; }
+    int clearTotal() const { return clearTotal_; }
     const Piece& current() const { return current_; }
     const std::array<std::array<int, BOARD_W>, BOARD_H>& board() const { return board_; }
 
@@ -169,10 +181,19 @@ public:
         for (auto& row : board_) row.fill(-1);
         groundedFrames_ = 0;
         gravityFrames_ = 0;
+        clearPending_ = false;
+        clearRowCount_ = 0;
+        clearFrames_ = clearTotal_ = 0;
+        clearRows_.fill(-1);
     }
 
     void tick(bool softDropHeld) {
         if (paused_ || gameOver_) return;
+        if (clearPending_) {
+            if (clearFrames_ > 0) --clearFrames_;
+            if (clearFrames_ <= 0) resolvePendingClear();
+            return;
+        }
         const int interval = softDropHeld ? SOFT_DROP_FRAMES : gravityInterval();
         ++gravityFrames_;
         if (gravityFrames_ >= interval) {
@@ -193,7 +214,7 @@ public:
     }
 
     bool move(int dx, int dy) {
-        if (paused_ || gameOver_) return false;
+        if (paused_ || gameOver_ || clearPending_) return false;
         const int nx = current_.x + dx;
         const int ny = current_.y + dy;
         if (!collides(nx, ny, current_.rot)) {
@@ -206,7 +227,7 @@ public:
     }
 
     bool rotate(int direction) {
-        if (paused_ || gameOver_) return false;
+        if (paused_ || gameOver_ || clearPending_) return false;
         const int nr = (current_.rot + direction + 4) % 4;
         constexpr int kicks[] = {0, -1, 1, -2, 2};
         for (int kick : kicks) {
@@ -222,7 +243,7 @@ public:
     }
 
     void hardDrop() {
-        if (paused_ || gameOver_) return;
+        if (paused_ || gameOver_ || clearPending_) return;
         int cells = 0;
         while (move(0, 1)) ++cells;
         score_ += cells * 2;
@@ -230,7 +251,7 @@ public:
     }
 
     bool hold() {
-        if (paused_ || gameOver_ || holdUsed_) return false;
+        if (paused_ || gameOver_ || clearPending_ || holdUsed_) return false;
         const int currentKind = current_.kind;
         if (holdKind_ < 0) {
             holdKind_ = currentKind;
@@ -268,6 +289,11 @@ private:
     int clearEventSerial_ = 0;
     int lastCleared_ = 0;
     int lastClearKind_ = -1;
+    bool clearPending_ = false;
+    std::array<int,4> clearRows_{{-1,-1,-1,-1}};
+    int clearRowCount_ = 0;
+    int clearFrames_ = 0;
+    int clearTotal_ = 0;
 
     std::mt19937 rng_;
     FigureFallMode fallMode_;
@@ -364,34 +390,67 @@ private:
             const Point& p = SHAPES[current_.kind][current_.rot][slot];
             const int bx = current_.x + p.x;
             const int by = current_.y + p.y;
-            // Encoded cell = exact sprite fragment in phase1_cells.t3x.
-            // kind * 16 + rotation * 4 + source-fragment slot.
+            // Encoded cell keeps kind/rotation/source-slot so the same board can
+            // be re-skinned for the route selected at 200 lines.
             if (by >= 0 && by < BOARD_H && bx >= 0 && bx < BOARD_W)
                 board_[by][bx] = current_.kind * 16 + current_.rot * 4 + slot;
         }
-        clearLines();
-        if (!gameOver_) spawnPiece();
-    }
 
-    void clearLines() {
-        int cleared = 0;
-        for (int y = BOARD_H - 1; y >= 0; --y) {
+        clearRowCount_ = 0;
+        clearRows_.fill(-1);
+        for (int y = 0; y < BOARD_H; ++y) {
             bool full = true;
             for (int x = 0; x < BOARD_W; ++x) {
                 if (board_[y][x] < 0) { full = false; break; }
             }
-            if (!full) continue;
-            ++cleared;
-            for (int pull = y; pull > 0; --pull) board_[pull] = board_[pull - 1];
-            board_[0].fill(-1);
-            ++y;
+            if (full && clearRowCount_ < 4)
+                clearRows_[clearRowCount_++] = y;
         }
-        static constexpr int SCORE_TABLE[5] = {0, 100, 300, 500, 800};
-        lastCleared_ = cleared;
+
+        lastCleared_ = clearRowCount_;
         lastClearKind_ = current_.kind;
         ++clearEventSerial_;
+
+        if (clearRowCount_ > 0) {
+            // Desktop timing: lightning 1–3 rows = 10 frames, Tetris = 24.
+            clearTotal_ = clearRowCount_ == 4 ? 24 : 10;
+            clearFrames_ = clearTotal_;
+            clearPending_ = true;
+            gravityFrames_ = 0;
+            groundedFrames_ = 0;
+            return;
+        }
+
+        if (!gameOver_) spawnPiece();
+    }
+
+    void resolvePendingClear() {
+        if (!clearPending_) return;
+
+        std::array<std::array<int, BOARD_W>, BOARD_H> compact{};
+        for (auto& row : compact) row.fill(-1);
+
+        int dst = BOARD_H - 1;
+        for (int y = BOARD_H - 1; y >= 0; --y) {
+            bool remove = false;
+            for (int i = 0; i < clearRowCount_; ++i) {
+                if (clearRows_[i] == y) { remove = true; break; }
+            }
+            if (!remove && dst >= 0) compact[dst--] = board_[y];
+        }
+        board_ = compact;
+
+        static constexpr int SCORE_TABLE[5] = {0, 100, 300, 500, 800};
+        const int cleared = clearRowCount_;
         lines_ += cleared;
         score_ += SCORE_TABLE[std::min(cleared, 4)];
+
+        clearPending_ = false;
+        clearFrames_ = clearTotal_ = 0;
+        clearRowCount_ = 0;
+        clearRows_.fill(-1);
+
+        if (!gameOver_) spawnPiece();
     }
 };
 
@@ -424,6 +483,7 @@ private:
 
     std::string pathFor(const std::string& key) const {
         if (key == "cells") return "romfs:/gfx/phase1_cells.t3x";
+        if (key == "horror_cells") return "romfs:/gfx/horror_cells.t3x";
         return std::string("romfs:/gfx/") + key + ".t3x";
     }
 
@@ -522,19 +582,49 @@ void drawFallbackCell(float x, float y, int kind) {
     C2D_DrawRectSolid(x + 1, y + 1, 0.53f, CELL - 3, 2, color(255,255,255,65));
 }
 
-void drawFragment(int encoded, float x, float y, float size = CELL, float depth = 0.54f) {
+void drawFragmentFromBank(const std::string& bank, int encoded,
+                          float x, float y, float size = CELL, float depth = 0.54f) {
     const int kind = std::max(0, std::min(PIECE_COUNT - 1, encoded / 16));
-    if (g_assets.has("cells")) {
-        C2D_Image img = g_assets.image("cells", encoded);
-        const float s = size / 24.0f;
-        C2D_DrawImageAt(img, x, y, depth, nullptr, s, s);
+    if (g_assets.has(bank)) {
+        C2D_Image img = g_assets.image(bank, encoded);
+        const float scale = size / 24.0f;
+        C2D_DrawImageAt(img, x, y, depth, nullptr, scale, scale);
     } else {
         C2D_DrawRectSolid(x, y, depth, size - 1, size - 1, PIECE_COLORS[kind]);
     }
 }
 
+void drawFragment(int encoded, float x, float y, float size = CELL, float depth = 0.54f) {
+    drawFragmentFromBank("cells", encoded, x, y, size, depth);
+}
+
+void drawPlainCell(int kind, float x, float y, float size = CELL, float depth = 0.52f) {
+    kind = std::max(0, std::min(PIECE_COUNT - 1, kind));
+    const u32 base = PIECE_COLORS[kind];
+    C2D_DrawRectSolid(x, y, depth, size - 1, size - 1, base);
+    C2D_DrawRectSolid(x + 1, y + 1, depth + 0.01f,
+                      size - 3, 2, color(255,255,255,125));
+    C2D_DrawRectSolid(x + 1, y + 3, depth + 0.01f,
+                      2, size - 5, color(255,255,255,55));
+    C2D_DrawRectSolid(x + size - 3, y + 2, depth + 0.01f,
+                      2, size - 4, color(25,20,35,115));
+    C2D_DrawRectSolid(x + 2, y + size - 3, depth + 0.01f,
+                      size - 4, 2, color(25,20,35,105));
+}
+
+void drawRouteFragment(int encoded, float x, float y, float size, float depth,
+                       bool plainPieces, bool horrorPieces) {
+    const int kind = std::max(0, std::min(PIECE_COUNT - 1, encoded / 16));
+    if (plainPieces) drawPlainCell(kind, x, y, size, depth);
+    else if (horrorPieces)
+        drawFragmentFromBank("horror_cells", encoded, x, y, size, depth);
+    else
+        drawFragment(encoded, x, y, size, depth);
+}
+
 void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false,
-                 float xShift = 0.0f, float depth = 0.52f) {
+                 float xShift = 0.0f, float depth = 0.52f,
+                 bool plainPieces = false, bool horrorPieces = false) {
     for (int slot = 0; slot < 4; ++slot) {
         const Point& p = SHAPES[piece.kind][piece.rot][slot];
         const int gx = piece.x + p.x;
@@ -546,7 +636,8 @@ void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false,
             C2D_DrawRectSolid(x + 2, y + 2, depth - 0.01f,
                               CELL - 4, CELL - 4, color(210,150,255,78));
         } else {
-            drawFragment(piece.kind * 16 + piece.rot * 4 + slot, x, y, CELL, depth);
+            drawRouteFragment(piece.kind * 16 + piece.rot * 4 + slot,
+                              x, y, CELL, depth, plainPieces, horrorPieces);
         }
     }
 }
@@ -554,18 +645,18 @@ void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false,
 void drawMiniPiece(int kind, float x, float y, float cell = 8.0f) {
     for (int slot = 0; slot < 4; ++slot) {
         const Point& p = SHAPES[kind][0][slot];
-        const float px = x + p.x * cell;
-        const float py = y + p.y * cell;
-        C2D_DrawRectSolid(px, py, 0.82f, cell - 1.0f, cell - 1.0f, PIECE_COLORS[kind]);
-        C2D_DrawRectSolid(px + 1.0f, py + 1.0f, 0.83f, cell - 3.0f, 1.0f, color(255,255,255,80));
+        drawPlainCell(kind, x + p.x * cell, y + p.y * cell, cell, 0.82f);
     }
 }
 
-void drawCharacterMiniPiece(int kind, float x, float y, float cell = 11.0f, float depth = 0.82f) {
+void drawCharacterMiniPiece(int kind, float x, float y, float cell = 11.0f,
+                            float depth = 0.82f, bool plainPieces = false,
+                            bool horrorPieces = false) {
     for (int slot = 0; slot < 4; ++slot) {
         const Point& p = SHAPES[kind][0][slot];
         const int encoded = kind * 16 + slot;
-        drawFragment(encoded, x + p.x * cell, y + p.y * cell, cell, depth);
+        drawRouteFragment(encoded, x + p.x * cell, y + p.y * cell,
+                          cell, depth, plainPieces, horrorPieces);
     }
 }
 
