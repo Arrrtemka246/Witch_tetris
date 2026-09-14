@@ -122,6 +122,16 @@ public:
     const Piece& current() const { return current_; }
     const std::array<std::array<int, BOARD_W>, BOARD_H>& board() const { return board_; }
 
+    void developerAddLines(int amount = 10) {
+        lines_ = std::max(0, lines_ + amount);
+    }
+
+    void developerClearBoard() {
+        for (auto& row : board_) row.fill(-1);
+        groundedFrames_ = 0;
+        gravityFrames_ = 0;
+    }
+
     void tick(bool softDropHeld) {
         if (paused_ || gameOver_) return;
         const int interval = softDropHeld ? SOFT_DROP_FRAMES : gravityInterval();
