@@ -1818,22 +1818,73 @@ int main() {
 
     bool voiceTakeover=false;
     std::string resumeAfterVoice;
-    std::string vtdTrack="romfs:/audio/vtd_1.mp3";
+    std::deque<std::string> voiceFollowups;
+
+    // Original desktop reaction state. The 18 s global cooldown keeps Phobos
+    // alive without letting him talk over every move.
+    int reactionCooldown=0;
+    int reactionRotationCount=0;
+    int reactionRotationBlockPieces=0;
+    int reactionHoldCount=0;
+    int reactionPlayFrames=0;
+    int reactionPauseEligibleAt=FPS*(150+static_cast<int>(uiRng()%271));
+    bool reactionPauseHintPlayed=false;
+    bool reactionGameOverHandled=false;
+    bool reactionLayoutDone=false;
+    int consecutiveGameOvers=0;
+    bool loserStreakVoiceUsed=false;
+    int observedPieceSerial=game.pieceSerial();
+    int observedClearSerial=game.clearEventSerial();
+    std::set<std::string> spawnReactionUsed;
+    std::set<std::string> pauseReactionUsed;
+
+    // L/R music selection is scoped to the current gameplay music pool.
+    int manualMusicPhase=-999;
+    int manualMusicIndex=0;
 
     auto setMusic=[&](const std::string& path,bool loop=true){
         if(audio.ready() && !voiceTakeover && audio.path()!=path)
             audio.play(path,loop);
     };
 
-    auto playVoice=[&](const std::string& voicePath){
-        if(!audio.ready()) return;
-        resumeAfterVoice=audio.path();
+    auto playVoice=[&](const std::string& voicePath)->bool {
+        if(!audio.ready() || voicePath.empty()) return false;
+
+        // A direct story/secret line may replace another line, but the music
+        // to resume stays the original gameplay track.
+        if(!voiceTakeover) resumeAfterVoice=audio.path();
+        else voiceFollowups.clear();
+
+        if(!audio.play(voicePath,false)) return false;
         voiceTakeover=true;
-        audio.play(voicePath,false);
+        return true;
+    };
+
+    auto gameplayMusicKey=[&]()->int {
+        if(codes.vtdMode) return 3;
+        if(game.lines()>=200) return 2;
+        if(game.lines()>=100) return 1;
+        return 0;
+    };
+
+    auto gameplayMusicPool=[&]()->std::vector<std::string> {
+        if(codes.vtdMode)
+            return {"romfs:/audio/vtd_1.mp3","romfs:/audio/vtd_2.mp3"};
+        return musicPoolForTetris(game.lines());
     };
 
     auto phaseOrSecretMusic=[&]()->std::string {
-        return codes.vtdMode ? vtdTrack : musicForTetris(game.lines());
+        const int key=gameplayMusicKey();
+        std::vector<std::string> pool=gameplayMusicPool();
+        if(pool.empty()) return std::string();
+        if(key!=manualMusicPhase) {
+            manualMusicPhase=key;
+            manualMusicIndex=0;
+            if(key==3) manualMusicIndex=static_cast<int>(uiRng()%pool.size());
+        }
+        manualMusicIndex%=static_cast<int>(pool.size());
+        if(manualMusicIndex<0) manualMusicIndex+=static_cast<int>(pool.size());
+        return pool[manualMusicIndex];
     };
 
     auto goMenu=[&](){
@@ -1842,6 +1893,9 @@ int main() {
         codes.open=false;
         codes.vtdMode=false;
         voiceTakeover=false;
+        voiceFollowups.clear();
+        resumeAfterVoice.clear();
+        manualMusicPhase=-999;
         setMusic((osGetTime()/1000)%2?"romfs:/audio/menu_1.mp3":"romfs:/audio/menu_2.mp3",true);
     };
 
