@@ -686,17 +686,24 @@ void drawTouchKey(const std::string& label, float x, float y, float w, float h, 
     drawText(label, x + 6, y + 7, label.size() > 4 ? 0.24f : 0.32f, color(245,240,250));
 }
 
-void renderCodeKeyboard(C3D_RenderTarget* target, const CodeKeyboardState& kb) {
+void renderCodeKeyboard(C3D_RenderTarget* target, const CodeKeyboardState& kb,
+                        bool winnerMode = false) {
     const u32 text = color(242,237,248);
     const u32 accent = color(214,145,255);
     C2D_TargetClear(target, color(10,7,17));
     C2D_SceneBegin(target);
 
-    drawText(kb.russian ? "CODE KEYBOARD — CAPS / RU" : "CODE KEYBOARD — CAPS / EN",
-             8, 7, 0.36f, accent);
+    if (winnerMode)
+        drawText(kb.russian ? "WINNER KEYBOARD — CAPS / RU" : "WINNER KEYBOARD — CAPS / EN",
+                 8, 7, 0.34f, accent);
+    else
+        drawText(kb.russian ? "CODE KEYBOARD — CAPS / RU" : "CODE KEYBOARD — CAPS / EN",
+                 8, 7, 0.36f, accent);
+
     std::string shown = kb.buffer.empty() ? "_" : kb.buffer;
     if (shown.size() > 24) shown = shown.substr(shown.size()-24);
-    drawText("CODE: " + shown, 8, 29, 0.30f, text);
+    drawText(std::string(winnerMode ? "WINNER: " : "CODE: ") + shown,
+             8, 29, 0.30f, text);
 
     if (!kb.russian) {
         const char* rows[] = {"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
@@ -706,7 +713,8 @@ void renderCodeKeyboard(C3D_RenderTarget* target, const CodeKeyboardState& kb) {
         for (int r=0;r<3;++r) {
             for (int i=0; rows[r][i]; ++i) {
                 std::string label(1, rows[r][i]);
-                drawTouchKey(label, starts[r] + i*widths[r], ys[r], widths[r]-2, 29, label=="Q");
+                drawTouchKey(label, starts[r] + i*widths[r], ys[r],
+                             widths[r]-2, 29, !winnerMode && label=="Q");
             }
         }
     } else {
@@ -720,7 +728,8 @@ void renderCodeKeyboard(C3D_RenderTarget* target, const CodeKeyboardState& kb) {
         const int ys[]={55,92,129};
         for(int r=0;r<3;++r)
             for(int i=0;i<counts[r];++i)
-                drawTouchKey(rows[r][i], starts[r]+i*widths[r], ys[r], widths[r]-2, 29);
+                drawTouchKey(rows[r][i], starts[r]+i*widths[r], ys[r],
+                             widths[r]-2, 29);
     }
 
     drawTouchKey("CLEAR", 7, 173, 67, 31, true);
@@ -728,14 +737,20 @@ void renderCodeKeyboard(C3D_RenderTarget* target, const CodeKeyboardState& kb) {
     drawTouchKey("CLOSE", 138, 173, 72, 31, true);
     drawTouchKey("ENTER", 216, 173, 96, 31, true);
 
-    if (!kb.russian)
-        drawText("Q = SHIFT+Q DEV CHEAT (+10 LINES)", 8, 211, 0.27f, color(245,180,205));
-    else
+    if (winnerMode) {
+        drawText(kb.russian ? "СТРАЖНИЦЫ / ФОБОС" : "GUARDIANS / PHOBOS",
+                 8, 211, 0.28f, accent);
+    } else if (!kb.russian) {
+        drawText("Q = SHIFT+Q DEV CHEAT (+10 LINES)", 8, 211, 0.27f,
+                 color(245,180,205));
+    } else {
         drawText("Codes trigger as soon as the word is complete.", 8, 211, 0.25f, text);
+    }
 
     if (kb.messageFrames > 0 && !kb.message.empty())
         drawText(kb.message, 8, 228, 0.25f, accent);
 }
+
 
 std::string codeTouchToken(const touchPosition& p, bool russian) {
     if (hitBox(p,7,173,67,31)) return "<CLEAR>";
@@ -1345,35 +1360,66 @@ void renderSettings(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
 }
 
 void renderRouteChoice(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
-                       int selected, float eyeShift = 0.0f) {
+                       int selected, const CodeKeyboardState& codes,
+                       float eyeShift = 0.0f) {
     const u32 accent=color(211,143,255), text=color(245,240,250);
-    const float bgShift=eyeShift*1.2f, actorShift=-eyeShift*2.2f, uiShift=-eyeShift*0.9f;
+    const float bgShift=eyeShift*1.2f;
+    const float actorShift=-eyeShift*2.2f;
+    const float uiShift=-eyeShift*0.9f;
+    const float selectedShift=-eyeShift*1.75f;
 
     C2D_TargetClear(top,color(5,3,9));
     C2D_SceneBegin(top);
     drawAssetFit("bg_phase1",-6+bgShift,-3,412,246,0.08f,true,1.0f);
     C2D_DrawRectSolid(0,0,0.22f,400,240,color(0,0,0,86));
+
+    // Functional 3D winner screen. The final poster artwork remains separate
+    // from this logic so it can be replaced cleanly when the visual reference
+    // is supplied.
     drawAssetFit("l100_will",20+actorShift,46,118,165,0.52f);
     drawAssetFit("intro_phobos_cast",265-actorShift,31,120,180,0.56f);
     drawPanel(82+uiShift,12,236,49,accent,0.76f);
     drawText("WHO WINS?",132+uiShift,27,0.54f,text);
 
+    // A raised VS badge sits between both route planes.
+    C2D_DrawCircleSolid(200 + selectedShift*0.35f,118,0.80f,31,
+                        color(78,28,105,220));
+    C2D_DrawCircleSolid(200 + selectedShift*0.35f,118,0.81f,25,
+                        color(170,85,220,105));
+    drawText("VS",184 + selectedShift*0.35f,105,0.68f,color(255,225,255));
+
     const float gx=33, px=211, y=160, w=156, h=48;
-    if(selected==0) C2D_DrawRectSolid(gx+uiShift,y,0.83f,w,h,color(70,105,155,235));
-    else C2D_DrawRectSolid(px+uiShift,y,0.83f,w,h,color(105,45,130,235));
+    if(selected==0) {
+        C2D_DrawRectSolid(gx+selectedShift,y-3,0.82f,w,h+6,color(92,145,205,48));
+        C2D_DrawRectSolid(gx+selectedShift,y,0.84f,w,h,color(70,105,155,235));
+    } else {
+        C2D_DrawRectSolid(px+selectedShift,y-3,0.82f,w,h+6,color(185,80,220,48));
+        C2D_DrawRectSolid(px+selectedShift,y,0.84f,w,h,color(105,45,130,235));
+    }
     drawText(std::string(selected==0?"> ":"  ")+"GUARDIANS",
-             gx+17+uiShift,y+16,0.38f,selected==0?color(180,225,255):text);
+             gx+17+(selected==0?selectedShift:uiShift),y+16,0.38f,
+             selected==0?color(180,225,255):text);
     drawText(std::string(selected==1?"> ":"  ")+"PHOBOS",
-             px+31+uiShift,y+16,0.38f,selected==1?accent:text);
+             px+31+(selected==1?selectedShift:uiShift),y+16,0.38f,
+             selected==1?accent:text);
+
+    if (codes.open) {
+        renderCodeKeyboard(bottom,codes,true);
+        return;
+    }
 
     C2D_TargetClear(bottom,color(10,7,17));
     C2D_SceneBegin(bottom);
     drawText("200 LINES — CHOOSE THE WINNER",12,18,0.43f,accent);
-    drawText("LEFT / RIGHT — choose",12,72,0.39f,text);
-    drawText("A / TOUCH — confirm",12,103,0.39f,text);
-    drawText("This choice changes the post-200 route,",12,150,0.32f,text);
-    drawText("music and Phobos Room behaviour.",12,175,0.32f,text);
+    drawText("LEFT / RIGHT — choose",12,65,0.37f,text);
+    drawText("A — confirm",12,91,0.37f,text);
+    drawText("Or type the winner on the touch keyboard.",12,128,0.30f,text);
+    C2D_DrawRectSolid(12,177,0.70f,296,39,color(92,47,123,235));
+    C2D_DrawRectSolid(12,177,0.71f,296,1,color(231,184,255,180));
+    drawText("TOUCH: WINNER KEYBOARD",58,189,0.36f,color(250,240,255));
+    drawText("GUARDIANS / PHOBOS   EN / RU",45,222,0.26f,accent);
 }
+
 
 void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
                  const IntroState& intro, float eyeShift = 0.0f) {
