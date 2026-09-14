@@ -7,8 +7,10 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <deque>
 #include <map>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -110,6 +112,9 @@ public:
         classicBag_.clear();
         pieceSerial_ = 0;
         lastSeen_.fill(0);
+        clearEventSerial_ = 0;
+        lastCleared_ = 0;
+        lastClearKind_ = -1;
         nextKind_ = randomPiece();
         spawnPiece();
     }
@@ -131,6 +136,10 @@ public:
     int holdKind() const { return holdKind_; }
     int nextKind() const { return nextKind_; }
     int speedFrames() const { return gravityInterval(); }
+    int pieceSerial() const { return pieceSerial_; }
+    int clearEventSerial() const { return clearEventSerial_; }
+    int lastCleared() const { return lastCleared_; }
+    int lastClearKind() const { return lastClearKind_; }
     const Piece& current() const { return current_; }
     const std::array<std::array<int, BOARD_W>, BOARD_H>& board() const { return board_; }
 
@@ -202,8 +211,8 @@ public:
         lockPiece();
     }
 
-    void hold() {
-        if (paused_ || gameOver_ || holdUsed_) return;
+    bool hold() {
+        if (paused_ || gameOver_ || holdUsed_) return false;
         const int currentKind = current_.kind;
         if (holdKind_ < 0) {
             holdKind_ = currentKind;
@@ -217,6 +226,7 @@ public:
             if (collides(current_.x, current_.y, current_.rot)) gameOver_ = true;
         }
         holdUsed_ = true;
+        return true;
     }
 
     int ghostY() const {
@@ -237,6 +247,9 @@ private:
     int lines_ = 0;
     int gravityFrames_ = 0;
     int groundedFrames_ = 0;
+    int clearEventSerial_ = 0;
+    int lastCleared_ = 0;
+    int lastClearKind_ = -1;
 
     std::mt19937 rng_;
     FigureFallMode fallMode_;
@@ -346,6 +359,9 @@ private:
             ++y;
         }
         static constexpr int SCORE_TABLE[5] = {0, 100, 300, 500, 800};
+        lastCleared_ = cleared;
+        lastClearKind_ = current_.kind;
+        ++clearEventSerial_;
         lines_ += cleared;
         score_ += SCORE_TABLE[std::min(cleared, 4)];
     }
