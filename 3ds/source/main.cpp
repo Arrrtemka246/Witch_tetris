@@ -1920,6 +1920,270 @@ int main() {
         codes.messageFrames=180;
     };
 
+    auto roll=[&](float probability)->bool {
+        std::uniform_real_distribution<float> d(0.0f,1.0f);
+        return d(uiRng)<probability;
+    };
+
+    auto randomVoice=[&](const std::vector<std::string>& pool)->std::string {
+        if(pool.empty()) return std::string();
+        std::uniform_int_distribution<int> d(0,static_cast<int>(pool.size())-1);
+        return pool[d(uiRng)];
+    };
+
+    auto playReaction=[&](const std::string& path,const std::string& label,
+                          bool ignoreCooldown=false)->bool {
+        if(voiceTakeover) return false;
+        if(!ignoreCooldown && reactionCooldown>0) return false;
+        if(!playVoice(path)) return false;
+        reactionCooldown=FPS*18;
+        codeMessage(label);
+        return true;
+    };
+
+    auto resetRunReactions=[&](){
+        reactionCooldown=0;
+        reactionRotationCount=0;
+        reactionRotationBlockPieces=0;
+        reactionHoldCount=0;
+        reactionPlayFrames=0;
+        reactionPauseEligibleAt=FPS*(150+static_cast<int>(uiRng()%271));
+        reactionPauseHintPlayed=false;
+        reactionGameOverHandled=false;
+        reactionLayoutDone=false;
+        spawnReactionUsed.clear();
+        pauseReactionUsed.clear();
+        observedPieceSerial=std::max(0,game.pieceSerial()-1);
+        observedClearSerial=game.clearEventSerial();
+    };
+
+    auto maybeOpeningReaction=[&](){
+        // Desktop v6.37.1: 65% chance, then 25/25/24/9/8/9 weighted pool.
+        if(!roll(0.65f)) return;
+        const int pick=static_cast<int>(uiRng()%100);
+        std::string path;
+        if(pick<25) path="romfs:/audio/react_start_meridian.mp3";
+        else if(pick<50) path="romfs:/audio/react_start_dark.mp3";
+        else if(pick<74) path="romfs:/audio/react_start_lets_begin.mp3";
+        else if(pick<83) path="romfs:/audio/react_start_power.mp3";
+        else if(pick<91) path="romfs:/audio/react_start_last_hope.mp3";
+        else path="romfs:/audio/react_start_new_era.mp3";
+        playReaction(path,"PHOBOS — START",true);
+    };
+
+    auto onceSpawn=[&](const std::string& key,float probability,
+                       const std::string& path,const std::string& label)->bool {
+        if(spawnReactionUsed.count(key) || reactionCooldown>0 || voiceTakeover)
+            return false;
+        if(!roll(probability)) return false;
+        if(playReaction(path,label,false)) {
+            spawnReactionUsed.insert(key);
+            return true;
+        }
+        return false;
+    };
+
+    auto maybeSpawnReaction=[&](int kind){
+        if(reactionCooldown>0 || voiceTakeover) return;
+
+        if(kind==T) {
+            if(onceSpawn("caleb_name_traitors",0.045f,
+                         "romfs:/audio/react_name_traitors.mp3","PHOBOS — CALEB"))
+                return;
+            onceSpawn("caleb_rebel",0.025f,
+                      "romfs:/audio/react_caleb_rebel.mp3","PHOBOS — REBEL");
+        } else if(kind==O) {
+            std::vector<std::string> choices;
+            if(!spawnReactionUsed.count("blunk_angry"))
+                choices.push_back("romfs:/audio/react_blunk_angry.mp3");
+            if(!spawnReactionUsed.count("blunk_annoyed"))
+                choices.push_back("romfs:/audio/react_blunk_annoyed.mp3");
+            if(!choices.empty() && roll(0.035f)) {
+                const std::string path=randomVoice(choices);
+                if(playReaction(path,"PHOBOS — BLUNK",false))
+                    spawnReactionUsed.insert(
+                        path.find("angry")!=std::string::npos ? "blunk_angry" : "blunk_annoyed");
+            }
+        } else if(kind==Z) {
+            if(onceSpawn("will_need_crystal",0.045f,
+                         "romfs:/audio/react_need_crystal.mp3","PHOBOS — WILL"))
+                return;
+            if(onceSpawn("will_crystal",0.045f,
+                         "romfs:/audio/react_will_crystal.mp3","PHOBOS — CRYSTAL"))
+                return;
+            onceSpawn("well_girls",0.018f,
+                      "romfs:/audio/react_well_girls.mp3","PHOBOS — GUARDIANS");
+        } else if(kind==I || kind==L || kind==J || kind==S) {
+            if(onceSpawn("well_girls",0.018f,
+                         "romfs:/audio/react_well_girls.mp3","PHOBOS — GUARDIANS"))
+                return;
+            onceSpawn("guardian_of_veil",0.008f,
+                      "romfs:/audio/react_guardian.mp3","PHOBOS — GUARDIAN");
+        }
+    };
+
+    auto observeSpawn=[&](){
+        const int serial=game.pieceSerial();
+        if(serial==observedPieceSerial) return;
+        const int delta=std::max(1,std::abs(serial-observedPieceSerial));
+        for(int i=0;i<delta && reactionRotationBlockPieces>0;++i)
+            --reactionRotationBlockPieces;
+        observedPieceSerial=serial;
+        reactionRotationCount=0;
+        maybeSpawnReaction(game.current().kind);
+    };
+
+    auto rotateWithReaction=[&](int direction){
+        ++reactionRotationCount;
+        if(reactionRotationCount>=5 && reactionRotationBlockPieces<=0 && !voiceTakeover) {
+            float p=0.72f;
+            if(reactionRotationCount==5) p=0.12f;
+            else if(reactionRotationCount==6) p=0.24f;
+            else if(reactionRotationCount==7) p=0.38f;
+            else if(reactionRotationCount==8) p=0.55f;
+            if(roll(p) && playReaction("romfs:/audio/react_rotate_hint.mp3",
+                                       "PHOBOS — ROTATE",true)) {
+                reactionRotationCount=-999;
+                reactionRotationBlockPieces=6;
+            }
+        }
+        game.rotate(direction);
+    };
+
+    auto holdWithReaction=[&](){
+        if(!game.hold()) return;
+        ++reactionHoldCount;
+        if(reactionHoldCount>=7 && roll(0.35f)) {
+            if(playReaction("romfs:/audio/react_hold_hint.mp3",
+                            "PHOBOS — HOLD",false))
+                reactionHoldCount=0;
+        }
+        observeSpawn();
+    };
+
+    auto maybePauseReaction=[&](bool leaving){
+        if(voiceTakeover) return;
+        const float chance=leaving?0.34f:0.52f;
+        if(!roll(chance)) return;
+
+        const std::vector<std::string> pool={
+            "romfs:/audio/react_pause_well.mp3",
+            "romfs:/audio/react_pause_no_hurry.mp3",
+            "romfs:/audio/react_pause_waiting.mp3",
+            "romfs:/audio/react_pause_what_short.mp3",
+            "romfs:/audio/react_pause_what_full.mp3",
+            "romfs:/audio/react_pause_what_want.mp3"
+        };
+        std::vector<std::string> unused;
+        for(const std::string& p:pool)
+            if(!pauseReactionUsed.count(p)) unused.push_back(p);
+        if(unused.empty()) return;
+
+        const std::string path=randomVoice(unused);
+        if(playReaction(path,leaving?"PHOBOS — RESUME":"PHOBOS — PAUSE",true))
+            pauseReactionUsed.insert(path);
+    };
+
+    auto processClearReaction=[&](){
+        const int serial=game.clearEventSerial();
+        if(serial==observedClearSerial) return;
+        observedClearSerial=serial;
+
+        const int cleared=game.lastCleared();
+        const int kind=game.lastClearKind();
+        if(cleared<=0) return;
+
+        if(cleared==4) {
+            const std::vector<std::string> willPool={
+                "romfs:/audio/react_will_tetris_1.mp3",
+                "romfs:/audio/react_will_tetris_2.mp3",
+                "romfs:/audio/react_will_tetris_3.mp3",
+                "romfs:/audio/react_will_tetris_4.mp3"
+            };
+            if(playReaction(randomVoice(willPool),"WILL — TETRIS",true) && roll(0.55f))
+                voiceFollowups.push_back("romfs:/audio/react_tetris_not_bad.mp3");
+            return;
+        }
+
+        if(reactionCooldown>0 || voiceTakeover) return;
+
+        if(roll(0.05f)) {
+            playReaction("romfs:/audio/react_destroy_weak.mp3",
+                         "PHOBOS — WEAK LINK",false);
+            return;
+        }
+
+        std::vector<std::string> pool;
+        const char* label=nullptr;
+        if(kind==I) {
+            pool={"romfs:/audio/react_earth_1.mp3","romfs:/audio/react_earth_2.mp3",
+                  "romfs:/audio/react_earth_3.mp3"};
+            label="CORNELIA — EARTH";
+        } else if(kind==S) {
+            pool={"romfs:/audio/react_water_1.mp3","romfs:/audio/react_water_2.mp3",
+                  "romfs:/audio/react_water_3.mp3"};
+            label="IRMA — WATER";
+        } else if(kind==J) {
+            pool={"romfs:/audio/react_fire_1.mp3","romfs:/audio/react_fire_2.mp3",
+                  "romfs:/audio/react_fire_3.mp3"};
+            label="TARANEE — FIRE";
+        } else if(kind==L) {
+            pool={"romfs:/audio/react_air_1.mp3","romfs:/audio/react_air_2.mp3",
+                  "romfs:/audio/react_air_3.mp3"};
+            label="HAY LIN — AIR";
+        }
+        if(!pool.empty()) {
+            playReaction(randomVoice(pool),label?label:"GUARDIAN",false);
+            return;
+        }
+
+        if(kind==T && roll(0.40f)) {
+            playReaction("romfs:/audio/react_caleb_clear.mp3","CALEB — CLEAR",false);
+            return;
+        }
+
+        if(kind==O) {
+            if(cleared==1 && roll(0.68f)) {
+                pool={"romfs:/audio/react_blunk_businessman.mp3",
+                      "romfs:/audio/react_blunk_laugh.mp3",
+                      "romfs:/audio/react_blunk_groan.mp3",
+                      "romfs:/audio/react_blunk_fight.mp3"};
+                playReaction(randomVoice(pool),"BLUNK — CLEAR",false);
+            } else if(cleared==2 && roll(0.82f)) {
+                pool={"romfs:/audio/react_blunk_warrior.mp3",
+                      "romfs:/audio/react_blunk_treasure.mp3",
+                      "romfs:/audio/react_blunk_not_afraid.mp3"};
+                playReaction(randomVoice(pool),"BLUNK — DOUBLE",false);
+            }
+        }
+    };
+
+    auto stepGameplayMusic=[&](int delta){
+        (void)phaseOrSecretMusic(); // normalize phase/index first
+        std::vector<std::string> pool=gameplayMusicPool();
+        if(pool.empty()) return;
+
+        if(pool.size()==1) {
+            codeMessage("MUSIC: ONLY TRACK");
+            return;
+        }
+
+        const int n=static_cast<int>(pool.size());
+        manualMusicIndex=(manualMusicIndex+delta)%n;
+        if(manualMusicIndex<0) manualMusicIndex+=n;
+        const std::string path=pool[manualMusicIndex];
+
+        if(voiceTakeover)
+            resumeAfterVoice=path;
+        else
+            audio.play(path,true);
+
+        char msg[48];
+        std::snprintf(msg,sizeof(msg),"MUSIC %d / %d",
+                      manualMusicIndex+1,n);
+        codeMessage(msg);
+    };
+
     auto activateTypedCode=[&]()->bool {
         const std::string& b=codes.buffer;
 
