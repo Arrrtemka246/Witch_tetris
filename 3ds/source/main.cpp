@@ -1940,6 +1940,7 @@ std::vector<std::string> musicPoolForTetris(int lines, bool phobosRoute = false)
             "romfs:/audio/phase1_2.mp3",
             "romfs:/audio/phase1_3.mp3",
             "romfs:/audio/music_phase1_hollow.mp3",
+            "romfs:/audio/music_cutscene_lines100_football.mp3",
             "romfs:/audio/music_arcade_2.mp3",
             "romfs:/audio/music_arcade_4.mp3",
             "romfs:/audio/music_collection_minigames_2.mp3",
