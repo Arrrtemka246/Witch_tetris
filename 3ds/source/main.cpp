@@ -1990,7 +1990,7 @@ int main() {
 
         } else if(mode==Mode::PhobosRoom) {
             if(down&(KEY_B|KEY_START)) goMenu();
-            else if(down&(KEY_A|KEY_X)) phobosState=(phobosState+1)%6;
+            else if((down&(KEY_A|KEY_X)) || touchPressed) phobosState=(phobosState+1)%6;
         }
 
         C2D_TextBufClear(g_textBuf);
