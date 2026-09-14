@@ -111,12 +111,6 @@ CORE_IMAGES = {
     "phobos_resistance": ("cutscenes/lines100/phobos_action.png", "actor"),
     "phobos_room_bg": ("cutscenes/phobos_room/background_v2.png", "cover"),
     "phobos_room_table": ("cutscenes/phobos_room/table_foreground.png", "fit"),
-    "phobos_room_state0": ("cutscenes/phobos_room/states/state_00.png", "actor"),
-    "phobos_room_state1": ("cutscenes/phobos_room/states/state_01.png", "actor"),
-    "phobos_room_state2": ("cutscenes/phobos_room/states/state_02.png", "actor"),
-    "phobos_room_state3": ("cutscenes/phobos_room/states/state_03.png", "actor"),
-    "phobos_room_state4": ("cutscenes/phobos_room/states/state_04.png", "actor"),
-    "phobos_room_state5": ("cutscenes/phobos_room/states/state_05.png", "actor"),
 
 }
 
@@ -196,6 +190,82 @@ def build_phase1_cells() -> None:
     t3s.write_text("\n".join(atlas_lines) + "\n", encoding="utf-8")
     run("tex3ds", "-i", str(t3s), "-o", str(GFX / "phase1_cells.t3x"))
 
+
+def remove_border_light(im: Image.Image, threshold: int = 238) -> Image.Image:
+    """Pillow equivalent of main.py's make_border_light_transparent()."""
+    im = im.convert("RGBA")
+    px = im.load()
+    w, h = im.size
+    if w <= 0 or h <= 0:
+        return im
+
+    def is_bg(x: int, y: int) -> bool:
+        r, g, b, a = px[x, y]
+        return a > 0 and min(r, g, b) >= threshold and max(r, g, b) - min(r, g, b) <= 18
+
+    stack = []
+    for x in range(w):
+        stack.append((x, 0)); stack.append((x, h - 1))
+    for y in range(h):
+        stack.append((0, y)); stack.append((w - 1, y))
+
+    background = set()
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in background or x < 0 or y < 0 or x >= w or y >= h:
+            continue
+        if not is_bg(x, y):
+            continue
+        background.add((x, y))
+        stack.extend(((x-1,y),(x+1,y),(x,y-1),(x,y+1)))
+
+    for x, y in background:
+        r, g, b, _ = px[x, y]
+        px[x, y] = (r, g, b, 0)
+
+    edge = set()
+    for x, y in background:
+        for nx, ny in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)):
+            if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in background:
+                edge.add((nx, ny))
+    for x, y in edge:
+        r, g, b, a = px[x, y]
+        lo, hi = min(r, g, b), max(r, g, b)
+        if lo >= 180 and hi - lo <= 30:
+            alpha = max(0, min(255, int((238 - lo) * 255 / 58)))
+            px[x, y] = (r, g, b, min(a, alpha))
+    return im
+
+def build_phobos_room_poses() -> None:
+    sheet_path = ASSETS / "cutscenes" / "phobos_room" / "phobos_seated_poses.png"
+    if not sheet_path.exists():
+        print(f"[3ds assets] seated Phobos sheet missing: {sheet_path}", file=sys.stderr)
+        return
+
+    with Image.open(sheet_path) as sheet:
+        sheet = sheet.convert("RGBA")
+        cell_w, cell_h = sheet.width // 3, sheet.height // 2
+        pose_dir = WORK / "phobos_room_poses"
+        pose_dir.mkdir(parents=True, exist_ok=True)
+
+        pose_index = 0
+        for row in range(2):
+            for col in range(3):
+                pose = sheet.crop((
+                    col * cell_w, row * cell_h,
+                    (col + 1) * cell_w, (row + 1) * cell_h
+                ))
+                pose = remove_border_light(pose)
+                alpha = pose.getchannel("A")
+                bbox = alpha.getbbox()
+                if bbox:
+                    pose = pose.crop(bbox)
+                pose.thumbnail((250, 205), Image.Resampling.LANCZOS)
+                out = pose_dir / f"phobos_room_pose{pose_index}.png"
+                pose.save(out)
+                to_t3x(out, GFX / f"phobos_room_pose{pose_index}.t3x", "rgba5551")
+                pose_index += 1
+
 def build_story_frames() -> None:
     # Six ready-made Phobos collapse frames are small enough to keep resident.
     for i in range(6):
@@ -250,6 +320,7 @@ def build_core() -> None:
         p.mkdir(parents=True, exist_ok=True)
 
     build_phase1_cells()
+    build_phobos_room_poses()
     build_story_frames()
     build_ending_assets()
 
