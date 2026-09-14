@@ -4,7 +4,8 @@
 The desktop game remains the source of truth. This script creates a compact
 RomFS for the native 3DS port:
 - PNG/JPEG -> tex3ds .t3x (ETC1/ETC1A4 or RGBA5551 for tetromino fragments)
-- MP3/WAV are copied losslessly; MP3 is decoded on-device with mpg123
+- Music MP3 is copied losslessly; short reaction WAV clips are converted to
+  compact mono MP3 for the single-stream mpg123/ndsp player
 - Phase-I tetromino artwork is split into 24x24 fragments so locked pieces keep
   the same "character breaks apart when lines clear" behaviour as main.py.
 
@@ -131,7 +132,78 @@ CORE_AUDIO = {
     "voice_matrix.mp3": "audio/voice/phobos/matrix_fan.mp3",
     "voice_porn.mp3": "audio/voice/phobos/porn_reaction.mp3",
     "voice_devq.mp3": "audio/voice/phobos/not_bad.mp3",
+
+    # Original gameplay reaction bank (already MP3).
+    "react_start_meridian.mp3": "audio/voice/phobos/meridian_mine.mp3",
+    "react_start_dark.mp3": "audio/voice/phobos/dark_side.mp3",
+    "react_tetris_not_bad.mp3": "audio/voice/phobos/not_bad.mp3",
+    "react_caleb_rebel.mp3": "audio/voice/phobos/rebel.mp3",
+    "react_blunk_angry.mp3": "audio/voice/phobos/blunk_angry.mp3",
+    "react_blunk_annoyed.mp3": "audio/voice/phobos/blunk_annoyed.mp3",
+    "react_will_crystal.mp3": "audio/voice/phobos/crystal.mp3",
+    "react_guardian.mp3": "audio/voice/phobos/guardian_of_veil.mp3",
+    "react_rotate_hint.mp3": "audio/voice/phobos/rotate_hint.mp3",
+    "react_hold_hint.mp3": "audio/voice/phobos/hold_hint.mp3",
+    "react_pause_hint.mp3": "audio/voice/phobos/pause_hint.mp3",
+    "react_layout.mp3": "audio/voice/phobos/layout_wont_help.mp3",
+
     "ending_outro.mp3": "audio/music/ending/witch_end_outro.mp3",
+}
+
+# The desktop build mixes WAV/MP3 freely through pygame. The native 3DS port
+# currently has one mpg123/ndsp stream, so the WAV members of the original
+# reaction system are transcoded during asset preparation. This keeps all
+# reaction logic on-device without adding a second decoder.
+REACTION_WAV_AUDIO = {
+    # New-game Phobos pool.
+    "react_start_lets_begin.mp3": "audio/voice/phobos/extra/lets_begin.wav",
+    "react_start_power.mp3": "audio/voice/phobos/extra2/your_power_is_nothing.wav",
+    "react_start_last_hope.mp3": "audio/voice/phobos/extra2/last_hope_universe.wav",
+    "react_start_new_era.mp3": "audio/voice/phobos/extra2/new_era_phobos.wav",
+
+    # Spawn / hint / pause / game-over reactions.
+    "react_name_traitors.mp3": "audio/voice/phobos/extra/name_traitors.wav",
+    "react_need_crystal.mp3": "audio/voice/phobos/extra2/need_crystal.wav",
+    "react_well_girls.mp3": "audio/voice/phobos/extra2/well_girls.wav",
+    "react_destroy_weak.mp3": "audio/voice/phobos/extra2/destroy_weak_link.wav",
+    "react_gameover_expected.mp3": "audio/voice/phobos/extra2/expected_no_less.wav",
+    "react_gameover_loser.mp3": "audio/voice/phobos/extra2/you_loser.wav",
+    "react_pause_well.mp3": "audio/voice/phobos/extra/well.wav",
+    "react_pause_no_hurry.mp3": "audio/voice/phobos/extra2/no_need_to_hurry.wav",
+    "react_pause_waiting.mp3": "audio/voice/phobos/extra2/waiting_achieves.wav",
+    "react_pause_what_short.mp3": "audio/voice/phobos/extra2/whats_wrong_short.wav",
+    "react_pause_what_full.mp3": "audio/voice/phobos/extra2/whats_wrong_full.wav",
+    "react_pause_what_want.mp3": "audio/voice/phobos/extra2/what_do_you_want.wav",
+
+    # Will Tetris responses.
+    "react_will_tetris_1.mp3": "audio/voice/will/we_are_one.wav",
+    "react_will_tetris_2.mp3": "audio/voice/will/one_short.wav",
+    "react_will_tetris_3.mp3": "audio/voice/will/we_are_one_2.wav",
+    "react_will_tetris_4.mp3": "audio/voice/will/we_are_one_3.wav",
+
+    # Elemental line-clear pools.
+    "react_earth_1.mp3": "audio/voice/guardians/cornelia/earth_1.wav",
+    "react_earth_2.mp3": "audio/voice/guardians/cornelia/earth_2.wav",
+    "react_earth_3.mp3": "audio/voice/guardians/cornelia/earth_3.wav",
+    "react_water_1.mp3": "audio/voice/guardians/irma/water_1.wav",
+    "react_water_2.mp3": "audio/voice/guardians/irma/water_2.wav",
+    "react_water_3.mp3": "audio/voice/guardians/irma/water_3.wav",
+    "react_fire_1.mp3": "audio/voice/guardians/taranee/fire_1.wav",
+    "react_fire_2.mp3": "audio/voice/guardians/taranee/fire_2.wav",
+    "react_fire_3.mp3": "audio/voice/guardians/taranee/fire_3.wav",
+    "react_air_1.mp3": "audio/voice/guardians/haylin/air_1.wav",
+    "react_air_2.mp3": "audio/voice/guardians/haylin/air_2.wav",
+    "react_air_3.mp3": "audio/voice/guardians/haylin/air_3.wav",
+
+    # Caleb / Blunk line-clear pools.
+    "react_caleb_clear.mp3": "audio/voice/caleb/im_15.wav",
+    "react_blunk_businessman.mp3": "audio/voice/blunk/businessman.wav",
+    "react_blunk_laugh.mp3": "audio/voice/blunk/laugh.wav",
+    "react_blunk_groan.mp3": "audio/voice/blunk/groan.wav",
+    "react_blunk_fight.mp3": "audio/voice/blunk/fight.wav",
+    "react_blunk_warrior.mp3": "audio/voice/blunk/also_warrior.wav",
+    "react_blunk_treasure.mp3": "audio/voice/blunk/treasure.wav",
+    "react_blunk_not_afraid.mp3": "audio/voice/blunk/not_afraid.wav",
 }
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
@@ -139,6 +211,16 @@ AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a"}
 
 def run(*args: str) -> None:
     subprocess.run(args, check=True)
+
+def transcode_voice(src: Path, dst: Path) -> None:
+    """Convert a short desktop WAV reaction to compact 3DS-friendly MP3."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(src),
+        "-vn", "-ac", "1", "-ar", "32000", "-b:a", "80k",
+        str(dst),
+    )
 
 def save_processed(src: Path, dst: Path, mode: str) -> None:
     with Image.open(src) as im:
@@ -361,6 +443,13 @@ def build_core() -> None:
             print(f"[3ds assets] optional audio missing: {src}", file=sys.stderr)
             continue
         shutil.copy2(src, AUDIO / out_name)
+
+    for out_name, rel in REACTION_WAV_AUDIO.items():
+        src = ASSETS / rel
+        if not src.exists():
+            print(f"[3ds assets] optional reaction voice missing: {src}", file=sys.stderr)
+            continue
+        transcode_voice(src, AUDIO / out_name)
 
 def safe_name(rel: Path) -> str:
     raw = rel.as_posix()
