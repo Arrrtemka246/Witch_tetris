@@ -462,18 +462,20 @@ void drawFragment(int encoded, float x, float y, float size = CELL, float depth 
     }
 }
 
-void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false) {
+void drawPieceAt(const Piece& piece, int yOverride, bool ghost = false,
+                 float xShift = 0.0f, float depth = 0.52f) {
     for (int slot = 0; slot < 4; ++slot) {
         const Point& p = SHAPES[piece.kind][piece.rot][slot];
         const int gx = piece.x + p.x;
         const int gy = yOverride + p.y;
         if (gy < 0) continue;
-        const float x = BOARD_X + gx * CELL;
+        const float x = BOARD_X + gx * CELL + xShift;
         const float y = BOARD_Y + gy * CELL;
         if (ghost) {
-            C2D_DrawRectSolid(x + 2, y + 2, 0.49f, CELL - 4, CELL - 4, color(210,150,255,85));
+            C2D_DrawRectSolid(x + 2, y + 2, depth - 0.01f,
+                              CELL - 4, CELL - 4, color(210,150,255,78));
         } else {
-            drawFragment(piece.kind * 16 + piece.rot * 4 + slot, x, y);
+            drawFragment(piece.kind * 16 + piece.rot * 4 + slot, x, y, CELL, depth);
         }
     }
 }
@@ -618,66 +620,107 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
                     const CodeKeyboardState& codes, float eyeShift = 0.0f) {
     const u32 text = color(245, 240, 250);
     const u32 accent = color(209, 143, 255);
-    const u32 grid = color(102, 88, 118, 105);
+    const u32 grid = color(130, 105, 150, 118);
+
+    // Stereo planes. eyeShift is -slider for the left eye and +slider for the
+    // right eye. Positive disparity pushes the background behind the screen;
+    // negative disparity brings the foreground toward the player.
+    const float bgShift     =  eyeShift * 1.35f;  // far background
+    const float pieceShift  =  eyeShift * 0.35f;  // pieces inside the glass
+    const float glassShift  = -eyeShift * 0.55f;  // glass / board frame
+    const float hudShift    = -eyeShift * 1.05f;  // HUD in front of glass
+    const float phobosShift = -eyeShift * 4.25f;  // strongest comfortable pop-out
 
     C2D_TargetClear(target, color(9, 7, 15));
     C2D_SceneBegin(target);
-    drawFullscreenAsset(phaseBackground(game.lines()));
-    C2D_DrawRectSolid(0, 0, 0.20f, 400, 240, color(0,0,0,28));
 
-    drawPanel(5, 5, 128, 230, accent, 0.28f);
-    drawPanel(140, 5, 120, 230, accent, 0.28f);
-    drawPanel(267, 5, 128, 230, accent, 0.28f);
+    // Plane 1 — far background. Overscan prevents black edges at full slider.
+    drawAssetFit(phaseBackground(game.lines()), -7 + bgShift, -4, 414, 248, 0.08f, true, 1.0f);
+    C2D_DrawRectSolid(0, 0, 0.18f, 400, 240, color(0,0,0,24));
 
-    C2D_DrawRectSolid(BOARD_X, BOARD_Y, 0.45f, BOARD_W * CELL, BOARD_H * CELL,
-                      color(8,8,15,188));
-    for (int x = 1; x < BOARD_W; ++x)
-        C2D_DrawRectSolid(BOARD_X + x * CELL, BOARD_Y, 0.46f, 1, BOARD_H * CELL, grid);
-    for (int y = 1; y < BOARD_H; ++y)
-        C2D_DrawRectSolid(BOARD_X, BOARD_Y + y * CELL, 0.46f, BOARD_W * CELL, 1, grid);
+    // The board's dark interior sits behind the pieces.
+    C2D_DrawRectSolid(BOARD_X - 1, BOARD_Y - 1, 0.34f,
+                      BOARD_W * CELL + 2, BOARD_H * CELL + 2,
+                      color(8,8,15,178));
 
+    // Plane 2 — locked/current pieces. They deliberately render before the
+    // glass grid so the player reads them as being inside the Tetris well.
     const auto& board = game.board();
     for (int y = 0; y < BOARD_H; ++y) {
         for (int x = 0; x < BOARD_W; ++x) {
             if (board[y][x] >= 0)
-                drawFragment(board[y][x], BOARD_X + x * CELL, BOARD_Y + y * CELL);
+                drawFragment(board[y][x],
+                             BOARD_X + x * CELL + pieceShift,
+                             BOARD_Y + y * CELL,
+                             CELL, 0.50f);
         }
     }
 
     if (!game.gameOver()) {
-        drawPieceAt(game.current(), game.ghostY(), true);
-        drawPieceAt(game.current(), game.current().y, false);
+        drawPieceAt(game.current(), game.ghostY(), true, pieceShift, 0.50f);
+        drawPieceAt(game.current(), game.current().y, false, pieceShift, 0.52f);
     }
 
+    // Plane 3 — the "glass": grid and frame float slightly in front of pieces.
+    const float glassX = BOARD_X + glassShift;
+    for (int x = 1; x < BOARD_W; ++x)
+        C2D_DrawRectSolid(glassX + x * CELL, BOARD_Y, 0.60f,
+                          1, BOARD_H * CELL, grid);
+    for (int y = 1; y < BOARD_H; ++y)
+        C2D_DrawRectSolid(glassX, BOARD_Y + y * CELL, 0.60f,
+                          BOARD_W * CELL, 1, grid);
+
+    const u32 glassEdge = color(191, 128, 225, 205);
+    const u32 glassShine = color(245, 222, 255, 105);
+    C2D_DrawRectSolid(glassX - 2, BOARD_Y - 2, 0.62f,
+                      BOARD_W * CELL + 4, 2, glassEdge);
+    C2D_DrawRectSolid(glassX - 2, BOARD_Y + BOARD_H * CELL, 0.62f,
+                      BOARD_W * CELL + 4, 2, glassEdge);
+    C2D_DrawRectSolid(glassX - 2, BOARD_Y - 2, 0.62f,
+                      2, BOARD_H * CELL + 4, glassEdge);
+    C2D_DrawRectSolid(glassX + BOARD_W * CELL, BOARD_Y - 2, 0.62f,
+                      2, BOARD_H * CELL + 4, glassEdge);
+    C2D_DrawRectSolid(glassX, BOARD_Y, 0.63f, 2, BOARD_H * CELL, glassShine);
+    C2D_DrawRectSolid(glassX, BOARD_Y, 0.63f, BOARD_W * CELL, 2, glassShine);
+
+    // Plane 4 — HUD. It has a little stereo lift, but less than Phobos so text
+    // remains comfortable and readable at maximum 3D slider.
+    drawPanel(5 + hudShift, 5, 128, 230, accent, 0.66f);
+    drawPanel(267 + hudShift, 5, 128, 230, accent, 0.66f);
+
     char buf[96];
-    drawText("W.I.T.C.H.", 15, 14, 0.55f, accent);
-    drawText("TETRIS", 15, 37, 0.47f, text);
+    drawText("W.I.T.C.H.", 15 + hudShift, 14, 0.55f, accent);
+    drawText("TETRIS", 15 + hudShift, 37, 0.47f, text);
     std::snprintf(buf, sizeof(buf), "LINES %d", game.lines());
-    drawText(buf, 15, 66, 0.36f, text);
+    drawText(buf, 15 + hudShift, 66, 0.36f, text);
     std::snprintf(buf, sizeof(buf), "SCORE %d", game.score());
-    drawText(buf, 15, 85, 0.36f, text);
+    drawText(buf, 15 + hudShift, 85, 0.36f, text);
     std::snprintf(buf, sizeof(buf), "SPEED %df", game.speedFrames());
-    drawText(buf, 15, 104, 0.36f, text);
+    drawText(buf, 15 + hudShift, 104, 0.36f, text);
 
     const char* phase = game.lines() >= 200 ? "GUARDIANS" :
                         (game.lines() >= 100 ? "RESISTANCE" : "PHOBOS");
-    drawText(phase, 15, 124, 0.31f, accent);
+    drawText(phase, 15 + hudShift, 124, 0.31f, accent);
 
-    // Phobos keeps a visible place on the top screen, just like in the desktop
-    // composition.  The eye-dependent offset gives him real stereoscopic depth.
-    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
-    drawAssetFit(phobosKey, 18 + eyeShift * 5.0f, 133, 108, 96, 0.61f, false, 0.96f);
+    drawText("NEXT", 279 + hudShift, 16, 0.38f, accent);
+    drawCharacterMiniPiece(game.nextKind(), 306 + hudShift, 43, 13.0f, 0.83f);
+    drawText(PIECE_CHARACTERS[game.nextKind()], 278 + hudShift, 88, 0.27f, text);
 
-    drawText("NEXT", 279, 16, 0.38f, accent);
-    drawCharacterMiniPiece(game.nextKind(), 306, 43, 13.0f, 0.82f);
-    drawText(PIECE_CHARACTERS[game.nextKind()], 278, 88, 0.27f, text);
-
-    drawText("HOLD", 279, 112, 0.38f, accent);
+    drawText("HOLD", 279 + hudShift, 112, 0.38f, accent);
     if (game.holdKind() >= 0) {
-        drawCharacterMiniPiece(game.holdKind(), 306, 139, 12.0f, 0.82f);
-        drawText(PIECE_CHARACTERS[game.holdKind()], 278, 184, 0.27f, text);
+        drawCharacterMiniPiece(game.holdKind(), 306 + hudShift, 139, 12.0f, 0.83f);
+        drawText(PIECE_CHARACTERS[game.holdKind()], 278 + hudShift, 184, 0.27f, text);
     }
-    drawText("START: MENU", 279, 211, 0.27f, text);
+    drawText("START: MENU", 279 + hudShift, 211, 0.27f, text);
+
+    // Plane 5 — Phobos: foreground character with a subtle rim/glow. The glow
+    // reinforces the pop-out effect without pushing the UI text too far.
+    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
+    const float phobosX = 20 + phobosShift;
+    C2D_DrawRectSolid(phobosX + 14, 143, 0.73f, 80, 78, color(168,90,215,26));
+    C2D_DrawRectSolid(phobosX + 18, 139, 0.74f, 72, 84, color(220,160,255,18));
+    drawAssetFit(phobosKey, phobosX, 132, 108, 98, 0.78f, false, 1.0f);
+    drawText("PHOBOS", phobosX + 45, 212, 0.26f, color(225,170,255));
 
     if (codes.matrixFrames > 0) {
         C2D_DrawRectSolid(0,0,0.88f,400,240,color(0,90,20,70));
