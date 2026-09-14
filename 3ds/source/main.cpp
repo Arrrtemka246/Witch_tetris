@@ -869,26 +869,65 @@ const char* CUTSCENE_ITEMS[] = {
 };
 constexpr int CUTSCENE_COUNT = sizeof(CUTSCENE_ITEMS) / sizeof(CUTSCENE_ITEMS[0]);
 
-void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected, const Mp3Player& audio) {
+void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
+                int selected, const Mp3Player& audio, float eyeShift = 0.0f) {
     const u32 accent = color(211,143,255);
     const u32 text = color(245,240,250);
 
+    // Menu stereo stack:
+    // far palace -> menu plane -> selected-row glow -> Phobos foreground.
+    const float bgShift        =  eyeShift * 1.40f;
+    const float menuShift      = -eyeShift * 0.25f;
+    const float selectedShift  = -eyeShift * 1.30f;
+    const float phobosShift    = -eyeShift * 4.40f;
+
     C2D_TargetClear(top, color(8,7,14));
     C2D_SceneBegin(top);
-    drawFullscreenAsset("bg_menu");
-    C2D_DrawRectSolid(0, 0, 0.2f, 400, 240, color(0,0,0,75));
-    if (g_assets.has("phobos_menu_body"))
-        drawAssetFit("phobos_menu_body", 228, 20, 165, 212, 0.32f, false, 0.92f);
-    drawPanel(13, 12, 220, 215, accent);
-    drawText("W.I.T.C.H.", 28, 26, 0.72f, accent);
-    drawText("TETRIS", 28, 52, 0.62f, text);
-    drawText("NINTENDO 3DS", 28, 75, 0.34f, accent);
+
+    // Far layer. Overscan keeps the edges filled when the 3D slider is high.
+    drawAssetFit("bg_menu", -7 + bgShift, -4, 414, 248, 0.08f, true, 1.0f);
+    C2D_DrawRectSolid(0, 0, 0.18f, 400, 240, color(0,0,0,56));
+
+    // Middle layer — menu card.
+    drawPanel(13 + menuShift, 12, 220, 215, accent, 0.50f);
+    drawText("W.I.T.C.H.", 28 + menuShift, 26, 0.72f, accent);
+    drawText("TETRIS", 28 + menuShift, 52, 0.62f, text);
+    drawText("NINTENDO 3DS", 28 + menuShift, 75, 0.34f, accent);
 
     for (int i = 0; i < MENU_COUNT; ++i) {
         const float y = 105 + i * 22;
-        if (i == selected) C2D_DrawRectSolid(24, y-3, 0.8f, 190, 19, color(105,53,135,220));
-        drawText(std::string(i == selected ? "> " : "  ") + MENU_ITEMS[i], 29, y, 0.40f, text);
+        const bool active = i == selected;
+        const float rowShift = active ? selectedShift : menuShift;
+
+        if (active) {
+            // Selected item sits one plane closer than the menu card. Three
+            // translucent rectangles act as the "lit / protruding" edge the
+            // physical 3DS display is good at emphasizing.
+            C2D_DrawRectSolid(20 + selectedShift, y - 6, 0.68f,
+                              199, 25, color(173,92,218,35));
+            C2D_DrawRectSolid(22 + selectedShift, y - 5, 0.70f,
+                              195, 23, color(191,105,235,58));
+            C2D_DrawRectSolid(24 + selectedShift, y - 3, 0.72f,
+                              190, 19, color(111,56,143,235));
+            C2D_DrawRectSolid(24 + selectedShift, y - 3, 0.73f,
+                              190, 1, color(241,205,255,180));
+            C2D_DrawRectSolid(24 + selectedShift, y + 15, 0.73f,
+                              190, 1, color(160,95,205,150));
+        }
+
+        drawText(std::string(active ? "> " : "  ") + MENU_ITEMS[i],
+                 29 + rowShift, y, 0.40f,
+                 active ? color(255,247,255) : text);
     }
+
+    // Foreground layer — Phobos. A very soft purple aura is kept behind the
+    // sprite to strengthen the pop-out without looking like a solid card.
+    const float px = 228 + phobosShift;
+    C2D_DrawCircleSolid(px + 82, 104, 0.58f, 62, color(157,72,210,18));
+    C2D_DrawCircleSolid(px + 82, 126, 0.59f, 48, color(213,145,255,16));
+    if (g_assets.has("phobos_menu_body"))
+        drawAssetFit("phobos_menu_body", px, 20, 165, 212, 0.76f, false, 0.98f);
+    drawText("PHOBOS", px + 69, 211, 0.27f, color(231,184,255));
 
     C2D_TargetClear(bottom, color(13,10,22));
     C2D_SceneBegin(bottom);
@@ -904,7 +943,8 @@ void renderMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int selected, c
     if (audioStatus.size() > 34)
         drawText(audioStatus.substr(34, 34), 12, 151, 0.29f, audioColor);
     if (audioError)
-        drawText("Send me this red line if there is no sound.", 12, 177, 0.29f, color(245,170,180));
+        drawText("Send me this red line if there is no sound.", 12, 177, 0.29f,
+                 color(245,170,180));
 
     drawText("D-Pad: select    A: open    START: exit", 12, 207, 0.36f, accent);
 }
@@ -1948,7 +1988,7 @@ int main() {
                 ? static_cast<float>(osGetTime()-cutscene.startedMs)/1000.0f : 0.0f;
 
             if(mode==Mode::Intro) renderIntro(topTarget,bottom,intro);
-            else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio);
+            else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio,eye);
             else if(mode==Mode::Tetris) {
                 renderTetrisTop(game,topTarget,codes,eye);
                 renderTetrisBottom(game,bottom,audio,codes);
