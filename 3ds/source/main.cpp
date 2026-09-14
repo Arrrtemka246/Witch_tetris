@@ -488,6 +488,126 @@ void drawMiniPiece(int kind, float x, float y, float cell = 8.0f) {
     }
 }
 
+void drawCharacterMiniPiece(int kind, float x, float y, float cell = 11.0f, float depth = 0.82f) {
+    for (int slot = 0; slot < 4; ++slot) {
+        const Point& p = SHAPES[kind][0][slot];
+        const int encoded = kind * 16 + slot;
+        drawFragment(encoded, x + p.x * cell, y + p.y * cell, cell, depth);
+    }
+}
+
+struct CodeKeyboardState {
+    bool open = false;
+    bool russian = false;
+    bool vtdMode = false;
+    int matrixFrames = 0;
+    int jetixFrames = 0;
+    int messageFrames = 0;
+    std::string buffer;
+    std::string message;
+};
+
+bool hitBox(const touchPosition& p, int x, int y, int w, int h) {
+    return p.px >= x && p.px < x + w && p.py >= y && p.py < y + h;
+}
+
+void drawTouchKey(const std::string& label, float x, float y, float w, float h, bool special = false) {
+    const u32 fill = special ? color(88,45,118,235) : color(28,22,39,238);
+    const u32 border = special ? color(220,155,255) : color(128,95,150);
+    C2D_DrawRectSolid(x, y, 0.62f, w, h, fill);
+    C2D_DrawRectSolid(x, y, 0.63f, w, 1, border);
+    C2D_DrawRectSolid(x, y+h-1, 0.63f, w, 1, border);
+    C2D_DrawRectSolid(x, y, 0.63f, 1, h, border);
+    C2D_DrawRectSolid(x+w-1, y, 0.63f, 1, h, border);
+    drawText(label, x + 6, y + 7, label.size() > 4 ? 0.24f : 0.32f, color(245,240,250));
+}
+
+void renderCodeKeyboard(C3D_RenderTarget* target, const CodeKeyboardState& kb) {
+    const u32 text = color(242,237,248);
+    const u32 accent = color(214,145,255);
+    C2D_TargetClear(target, color(10,7,17));
+    C2D_SceneBegin(target);
+
+    drawText(kb.russian ? "CODE KEYBOARD — CAPS / RU" : "CODE KEYBOARD — CAPS / EN",
+             8, 7, 0.36f, accent);
+    std::string shown = kb.buffer.empty() ? "_" : kb.buffer;
+    if (shown.size() > 24) shown = shown.substr(shown.size()-24);
+    drawText("CODE: " + shown, 8, 29, 0.30f, text);
+
+    if (!kb.russian) {
+        const char* rows[] = {"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
+        const int starts[] = {5,20,45};
+        const int widths[] = {30,31,32};
+        const int ys[] = {55,92,129};
+        for (int r=0;r<3;++r) {
+            for (int i=0; rows[r][i]; ++i) {
+                std::string label(1, rows[r][i]);
+                drawTouchKey(label, starts[r] + i*widths[r], ys[r], widths[r]-2, 29, label=="Q");
+            }
+        }
+    } else {
+        static const char* row1[]={"Й","Ц","У","К","Е","Н","Г","Ш","Щ","З","Х"};
+        static const char* row2[]={"Ф","Ы","В","А","П","Р","О","Л","Д","Ж","Э"};
+        static const char* row3[]={"Я","Ч","С","М","И","Т","Ь","Б","Ю","Ё"};
+        const char** rows[]={row1,row2,row3};
+        const int counts[]={11,11,10};
+        const int starts[]={2,2,16};
+        const int widths[]={28,28,29};
+        const int ys[]={55,92,129};
+        for(int r=0;r<3;++r)
+            for(int i=0;i<counts[r];++i)
+                drawTouchKey(rows[r][i], starts[r]+i*widths[r], ys[r], widths[r]-2, 29);
+    }
+
+    drawTouchKey("CLEAR", 7, 173, 67, 31, true);
+    drawTouchKey(kb.russian ? "EN" : "RU", 80, 173, 52, 31, true);
+    drawTouchKey("CLOSE", 138, 173, 72, 31, true);
+    drawTouchKey("ENTER", 216, 173, 96, 31, true);
+
+    if (!kb.russian)
+        drawText("Q = SHIFT+Q DEV CHEAT (+10 LINES)", 8, 211, 0.27f, color(245,180,205));
+    else
+        drawText("Codes trigger as soon as the word is complete.", 8, 211, 0.25f, text);
+
+    if (kb.messageFrames > 0 && !kb.message.empty())
+        drawText(kb.message, 8, 228, 0.25f, accent);
+}
+
+std::string codeTouchToken(const touchPosition& p, bool russian) {
+    if (hitBox(p,7,173,67,31)) return "<CLEAR>";
+    if (hitBox(p,80,173,52,31)) return "<LANG>";
+    if (hitBox(p,138,173,72,31)) return "<CLOSE>";
+    if (hitBox(p,216,173,96,31)) return "<ENTER>";
+
+    if (!russian) {
+        const char* rows[] = {"QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
+        const int starts[] = {5,20,45};
+        const int widths[] = {30,31,32};
+        const int ys[] = {55,92,129};
+        for (int r=0;r<3;++r) {
+            for (int i=0; rows[r][i]; ++i) {
+                if (hitBox(p, starts[r]+i*widths[r], ys[r], widths[r]-2, 29))
+                    return std::string(1, rows[r][i]);
+            }
+        }
+    } else {
+        static const char* row1[]={"Й","Ц","У","К","Е","Н","Г","Ш","Щ","З","Х"};
+        static const char* row2[]={"Ф","Ы","В","А","П","Р","О","Л","Д","Ж","Э"};
+        static const char* row3[]={"Я","Ч","С","М","И","Т","Ь","Б","Ю","Ё"};
+        const char** rows[]={row1,row2,row3};
+        const int counts[]={11,11,10};
+        const int starts[]={2,2,16};
+        const int widths[]={28,28,29};
+        const int ys[]={55,92,129};
+        for(int r=0;r<3;++r)
+            for(int i=0;i<counts[r];++i)
+                if(hitBox(p,starts[r]+i*widths[r],ys[r],widths[r]-2,29))
+                    return rows[r][i];
+    }
+    return "";
+}
+
+
 std::string phaseBackground(int lines) {
     if (lines >= 200) return "bg_phase2";
     if (lines >= 100) return "bg_phase1";
