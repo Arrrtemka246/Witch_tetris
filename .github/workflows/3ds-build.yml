@@ -1,0 +1,39 @@
+name: Nintendo 3DS build
+
+on:
+  push:
+    branches:
+      - main
+      - port/3ds-native
+    paths:
+      - '3ds/**'
+      - '.github/workflows/3ds-build.yml'
+  pull_request:
+    paths:
+      - '3ds/**'
+      - '.github/workflows/3ds-build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install 3DS libraries
+        run: dkp-pacman -S --needed --noconfirm 3ds-dev
+
+      - name: Build .3dsx
+        run: make -C 3ds -j2
+
+      - name: Upload homebrew build
+        uses: actions/upload-artifact@v4
+        with:
+          name: witch-tetris-3ds
+          path: |
+            3ds/witch_tetris_3ds.3dsx
+            3ds/witch_tetris_3ds.smdh
+          if-no-files-found: error
