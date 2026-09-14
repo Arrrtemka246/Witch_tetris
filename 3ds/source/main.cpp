@@ -778,11 +778,111 @@ std::string phaseBackground(int lines, bool phobosRoute = false) {
     return "bg_phase0";
 }
 
+int clearFxJitter(int frame, int row, int segment, int amplitude) {
+    // Deterministic in both stereo eye passes: random-looking lightning without
+    // giving the left/right eyes different geometry.
+    unsigned int v = static_cast<unsigned int>(
+        frame * 1103515245u + row * 2654435761u + segment * 2246822519u);
+    v ^= v >> 13;
+    const int span = amplitude * 2 + 1;
+    return span > 0 ? static_cast<int>(v % static_cast<unsigned int>(span)) - amplitude : 0;
+}
+
+void renderClearEffect(const Game& game, bool phobosRoute, float eyeShift) {
+    if (!game.clearPending() || game.clearRowCount() <= 0) return;
+
+    const int total = std::max(1, game.clearTotal());
+    const float t = std::max(0.0f, std::min(1.0f,
+        1.0f - static_cast<float>(game.clearFrames()) / static_cast<float>(total)));
+    const float fxShift = -eyeShift * 1.55f;
+    const bool tetris = game.clearRowCount() == 4;
+
+    if (!tetris || phobosRoute) {
+        // Original 1–3 line effect: jagged lightning across every completed row.
+        // Phobos's route uses the same geometry with the darker route palette.
+        for (int r = 0; r < game.clearRowCount(); ++r) {
+            const int row = game.clearRow(r);
+            if (row < 0) continue;
+            const float cy = BOARD_Y + row * CELL + CELL * 0.5f;
+            const int strands = phobosRoute ? 3 : 2;
+            for (int strand = 0; strand < strands; ++strand) {
+                for (int seg = 0; seg < 12; ++seg) {
+                    const float x = BOARD_X + fxShift + seg * (BOARD_W * CELL / 12.0f);
+                    const int jitter = clearFxJitter(game.clearFrames() + strand * 17,
+                                                     row, seg, phobosRoute ? 5 : 3);
+                    const float yy = cy + static_cast<float>(jitter);
+                    const u32 outer = phobosRoute
+                        ? color(95,20,150,205)
+                        : color(245,235,255,225);
+                    const u32 inner = phobosRoute
+                        ? color(190,80,255,245)
+                        : color(190,110,255,245);
+                    C2D_DrawRectSolid(x, yy - 2.0f, 0.685f,
+                                      BOARD_W * CELL / 10.5f, phobosRoute ? 5.0f : 4.0f, outer);
+                    C2D_DrawRectSolid(x + 1.0f, yy - 0.7f, 0.690f,
+                                      BOARD_W * CELL / 11.2f, 1.5f, inner);
+                }
+            }
+        }
+    }
+
+    if (tetris) {
+        int minRow = BOARD_H, maxRow = 0;
+        for (int i = 0; i < game.clearRowCount(); ++i) {
+            minRow = std::min(minRow, game.clearRow(i));
+            maxRow = std::max(maxRow, game.clearRow(i));
+        }
+        const float cx = BOARD_X + BOARD_W * CELL * 0.5f + fxShift;
+        const float cy = BOARD_Y + (minRow + maxRow + 1) * CELL * 0.5f;
+        const float pulse = std::sin(std::min(1.0f,t) * 3.1415926f);
+        const float radius = 12.0f + 42.0f * t;
+
+        if (phobosRoute) {
+            // Desktop Phobos victory route replaces the Heart with a Phobos
+            // pulse while retaining dark lightning on all four rows.
+            C2D_DrawCircleSolid(cx, cy, 0.704f, radius,
+                                color(118,35,170,static_cast<u8>(70*(1.0f-t))));
+            const float scale = 0.82f + 0.16f * pulse;
+            const float alpha = 1.0f - std::max(0.0f,t-0.72f)/0.28f;
+            drawAssetFit("intro_phobos_cast",
+                         cx - 38.0f*scale, cy - 54.0f*scale,
+                         76.0f*scale, 108.0f*scale, 0.735f, false,
+                         std::max(0.0f,std::min(1.0f,alpha)));
+        } else {
+            // Exact gameplay idea from desktop: Heart of Kandrakar pulse,
+            // expanding pink wave, and a flash across the four rows.
+            C2D_DrawCircleSolid(cx, cy, 0.704f, radius,
+                                color(255,80,210,static_cast<u8>(70*(1.0f-t))));
+            C2D_DrawCircleSolid(cx, cy, 0.706f, std::max(3.0f,radius-5.0f),
+                                color(255,190,240,static_cast<u8>(25*(1.0f-t))));
+            const float scale = 0.72f + 0.23f * pulse;
+            const float alpha = 1.0f - std::max(0.0f,t-0.65f)/0.35f;
+            drawAssetFit("heart_kandrakar",
+                         cx - 38.0f*scale, cy - 47.0f*scale,
+                         76.0f*scale, 94.0f*scale, 0.735f, false,
+                         std::max(0.0f,std::min(1.0f,alpha)));
+
+            const u8 flashAlpha = static_cast<u8>(145.0f * std::max(0.0f,pulse));
+            for (int i = 0; i < game.clearRowCount(); ++i) {
+                const int row = game.clearRow(i);
+                C2D_DrawRectSolid(BOARD_X + fxShift, BOARD_Y + row*CELL,
+                                  0.710f, BOARD_W*CELL, CELL,
+                                  color(255,90,220,flashAlpha));
+            }
+        }
+    }
+}
+
 void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
                     const CodeKeyboardState& codes,
                     bool guardiansRoute, bool phobosRoute,
+                    bool horrorPieceMode,
                     float eyeShift = 0.0f) {
     const bool matrixMode = codes.matrixFrames > 0 || codes.vtdMode;
+    const bool plainRoutePieces =
+        game.lines() >= 200 && (guardiansRoute || (phobosRoute && !horrorPieceMode));
+    const bool horrorRoutePieces =
+        game.lines() >= 200 && phobosRoute && horrorPieceMode;
     const u32 text = color(245, 240, 250);
     const u32 accent = matrixMode ? color(90,255,120) : color(209, 143, 255);
     const u32 grid = matrixMode ? color(30,145,65,145) : color(130, 105, 150, 112);
@@ -818,16 +918,19 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     for (int y = 0; y < BOARD_H; ++y) {
         for (int x = 0; x < BOARD_W; ++x) {
             if (board[y][x] >= 0)
-                drawFragment(board[y][x],
-                             BOARD_X + x * CELL + pieceShift,
-                             BOARD_Y + y * CELL,
-                             CELL, 0.50f);
+                drawRouteFragment(board[y][x],
+                                  BOARD_X + x * CELL + pieceShift,
+                                  BOARD_Y + y * CELL,
+                                  CELL, 0.50f,
+                                  plainRoutePieces, horrorRoutePieces);
         }
     }
 
-    if (!game.gameOver()) {
-        drawPieceAt(game.current(), game.ghostY(), true, pieceShift, 0.49f);
-        drawPieceAt(game.current(), game.current().y, false, pieceShift, 0.52f);
+    if (!game.gameOver() && !game.clearPending()) {
+        drawPieceAt(game.current(), game.ghostY(), true, pieceShift, 0.49f,
+                    plainRoutePieces, horrorRoutePieces);
+        drawPieceAt(game.current(), game.current().y, false, pieceShift, 0.52f,
+                    plainRoutePieces, horrorRoutePieces);
     }
 
     // Glass/grid plane, intentionally in front of the blocks.
@@ -852,6 +955,10 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     C2D_DrawRectSolid(glassX, BOARD_Y, 0.63f,
                       2, BOARD_H * CELL, glassShine);
 
+    // Clear effects sit just in front of the glass and remain stereoscopically
+    // coherent. Completed rows are removed only after this animation finishes.
+    renderClearEffect(game, phobosRoute, eyeShift);
+
     // Compact floating HUD — no more three full-height framed columns.
     C2D_DrawRectSolid(7 + hudShift, 7, 0.65f, 116, 111, color(5,5,12,112));
     C2D_DrawRectSolid(277 + hudShift, 7, 0.65f, 116, 105, color(5,5,12,112));
@@ -872,12 +979,14 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     drawText(phase, 14 + hudShift, 101, 0.28f, accent);
 
     drawText("NEXT", 285 + hudShift, 14, 0.34f, accent);
-    drawCharacterMiniPiece(game.nextKind(), 315 + hudShift, 38, 12.0f, 0.83f);
+    drawCharacterMiniPiece(game.nextKind(), 315 + hudShift, 38, 12.0f, 0.83f,
+                           plainRoutePieces, horrorRoutePieces);
     drawText(PIECE_CHARACTERS[game.nextKind()], 284 + hudShift, 88, 0.24f, text);
 
     drawText("HOLD", 285 + hudShift, 126, 0.34f, accent);
     if (game.holdKind() >= 0) {
-        drawCharacterMiniPiece(game.holdKind(), 315 + hudShift, 151, 11.0f, 0.83f);
+        drawCharacterMiniPiece(game.holdKind(), 315 + hudShift, 151, 11.0f, 0.83f,
+                               plainRoutePieces, horrorRoutePieces);
         drawText(PIECE_CHARACTERS[game.holdKind()], 284 + hudShift, 199, 0.24f, text);
     }
     drawText("START/SELECT PAUSE", 281 + hudShift, 214, 0.20f, text);
