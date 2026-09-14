@@ -672,8 +672,9 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int scene) {
     C2D_SceneBegin(bottom);
     drawText("ORIGINAL INTRO — 3DS ADAPTATION", 10, 14, 0.47f, accent);
     drawText("Artwork comes from assets/cutscenes/intro.", 10, 58, 0.38f, text);
-    drawText("A — next scene", 10, 126, 0.44f, text);
-    drawText("B / START — skip to menu", 10, 154, 0.44f, text);
+    C2D_DrawRectSolid(12, 114, 0.75f, 296, 48, color(88,45,118,230));
+    drawText("A / TOUCH — NEXT SCENE", 50, 128, 0.44f, text);
+    drawText("B / START — skip to menu", 10, 174, 0.40f, text);
     char buf[40];
     std::snprintf(buf, sizeof(buf), "SCENE %d / 6", scene + 1);
     drawText(buf, 10, 211, 0.38f, accent);
@@ -739,8 +740,9 @@ void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const Cutsc
     char buf[64];
     std::snprintf(buf,sizeof(buf),"FRAME %d / %d",cs.frame+1,total);
     drawText(buf,12,62,0.40f,text);
-    drawText("A — next",12,124,0.44f,text);
-    drawText("B / START — leave scene",12,154,0.44f,text);
+    C2D_DrawRectSolid(12,112,0.75f,296,50,color(88,45,118,230));
+    drawText("A / TOUCH — NEXT",67,128,0.46f,text);
+    drawText("B / START — leave scene",12,174,0.40f,text);
     drawText("Original artwork, scaled for 400x240.",12,210,0.34f,accent);
 }
 
@@ -1146,13 +1148,16 @@ int main() {
         hidScanInput();
         const u32 down=hidKeysDown();
         const u32 held=hidKeysHeld();
+        touchPosition touch{};
+        const bool touchPressed=(down&KEY_TOUCH)!=0;
+        if(touchPressed) hidTouchRead(&touch);
 
         audio.update();
 
         if(mode==Mode::Intro) {
             if(down&(KEY_B|KEY_START)) {
                 goMenu();
-            } else if(down&KEY_A) {
+            } else if((down&KEY_A)||touchPressed) {
                 ++introScene;
                 if(introScene>=6) goMenu();
             }
@@ -1213,7 +1218,7 @@ int main() {
                 mode=ret;
                 if(ret==Mode::Tetris) setMusic(musicForTetris(game.lines()),true);
                 else if(ret==Mode::CutsceneMenu) setMusic("romfs:/audio/menu_1.mp3",true);
-            } else if(down&KEY_A) {
+            } else if((down&KEY_A)||touchPressed) {
                 ++cutscene.frame;
                 if(cutscene.frame>=total) {
                     Mode ret=cutscene.returnMode;mode=ret;
