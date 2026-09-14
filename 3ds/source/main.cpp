@@ -681,17 +681,20 @@ std::string codeTouchToken(const touchPosition& p, bool russian) {
 }
 
 
-std::string phaseBackground(int lines) {
-    if (lines >= 200) return "bg_phase2";
+std::string phaseBackground(int lines, bool phobosRoute = false) {
+    if (lines >= 200) return phobosRoute ? "bg_phase1" : "bg_phase2";
     if (lines >= 100) return "bg_phase1";
     return "bg_phase0";
 }
 
 void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
-                    const CodeKeyboardState& codes, float eyeShift = 0.0f) {
+                    const CodeKeyboardState& codes,
+                    bool guardiansRoute, bool phobosRoute,
+                    float eyeShift = 0.0f) {
+    const bool matrixMode = codes.matrixFrames > 0 || codes.vtdMode;
     const u32 text = color(245, 240, 250);
-    const u32 accent = color(209, 143, 255);
-    const u32 grid = color(130, 105, 150, 112);
+    const u32 accent = matrixMode ? color(90,255,120) : color(209, 143, 255);
+    const u32 grid = matrixMode ? color(30,145,65,145) : color(130, 105, 150, 112);
 
     const float bgShift     =  eyeShift * 1.35f;
     const float pieceShift  =  eyeShift * 0.30f;
@@ -703,9 +706,17 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     C2D_SceneBegin(target);
 
     // The Tetris well is now the visual centre of the 400x240 display.
-    drawAssetFit(phaseBackground(game.lines()), -7 + bgShift, -4, 414, 248,
+    drawAssetFit(phaseBackground(game.lines(), phobosRoute), -7 + bgShift, -4, 414, 248,
                  0.08f, true, 1.0f);
     C2D_DrawRectSolid(0, 0, 0.18f, 400, 240, color(0,0,0,22));
+    if (matrixMode) {
+        C2D_DrawRectSolid(0,0,0.19f,400,240,color(0,48,15,138));
+        for(int i=0;i<20;++i) {
+            const float x=static_cast<float>((i*47 + codes.matrixFrames*2)%400);
+            const float y=static_cast<float>((i*83 + codes.matrixFrames)%240);
+            C2D_DrawRectSolid(x,y,0.20f,2,9,color(35,185,72,65));
+        }
+    }
 
     C2D_DrawRectSolid(BOARD_X - 2, BOARD_Y - 1, 0.34f,
                       BOARD_W * CELL + 4, BOARD_H * CELL + 2,
@@ -764,8 +775,9 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     std::snprintf(buf, sizeof(buf), "SPEED %df", game.speedFrames());
     drawText(buf, 14 + hudShift, 81, 0.34f, text);
 
-    const char* phase = game.lines() >= 200 ? "GUARDIANS" :
-                        (game.lines() >= 100 ? "RESISTANCE" : "PHOBOS");
+    const char* phase = codes.vtdMode ? "VTD / VALENTIN" :
+                        (game.lines() >= 200 ? (phobosRoute ? "PHOBOS WINS" : "GUARDIANS") :
+                         (game.lines() >= 100 ? "RESISTANCE" : "PHOBOS"));
     drawText(phase, 14 + hudShift, 101, 0.28f, accent);
 
     drawText("NEXT", 285 + hudShift, 14, 0.34f, accent);
@@ -779,19 +791,52 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
     }
     drawText("START/SELECT PAUSE", 281 + hudShift, 214, 0.20f, text);
 
-    // Phobos remains visible but no longer occupies a whole HUD column.
-    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
+    // Phobos / Valentin observer occupies the closest character plane.
     const float phobosX = 17 + phobosShift;
-    C2D_DrawCircleSolid(phobosX + 52, 177, 0.71f, 42, color(170,90,215,18));
-    drawAssetFit(phobosKey, phobosX, 121, 108, 111, 0.78f, false, 1.0f);
-
-    if (codes.matrixFrames > 0) {
-        C2D_DrawRectSolid(0,0,0.88f,400,240,color(0,90,20,70));
-        drawText("MATRIX", 294, 219, 0.32f, color(90,255,120));
+    if (codes.vtdMode) {
+        C2D_DrawCircleSolid(phobosX + 52,177,0.71f,43,color(40,210,80,24));
+        drawAssetFit("vtd_observer",phobosX,116,110,116,0.79f,false,1.0f);
+        drawText("VALENTIN",phobosX+27,214,0.25f,color(105,255,135));
+    } else if (!(guardiansRoute && game.lines()>=200)) {
+        const std::string phobosKey =
+            (phobosRoute && game.lines()>=200) ? "intro_phobos_cast" :
+            (game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay");
+        C2D_DrawCircleSolid(phobosX + 52, 177, 0.71f, 42, color(170,90,215,18));
+        drawAssetFit(phobosKey, phobosX, 121, 108, 111, 0.78f, false, 1.0f);
     }
+
+    if (codes.matrixFrames > 0 && !codes.vtdMode)
+        drawText("MATRIX", 294, 219, 0.32f, color(90,255,120));
+
     if (codes.jetixFrames > 0) {
-        drawPanel(285, 192, 105, 37, color(255,180,60), 0.88f);
-        drawText("JETIX", 307, 202, 0.45f, color(255,220,90));
+        // Desktop v6.5-inspired cameo: deterministic confetti + bouncing logo.
+        const int elapsed=FPS*6-codes.jetixFrames;
+        const u32 palette[]={
+            color(255,70,70),color(255,190,40),color(80,220,120),
+            color(80,180,255),color(210,90,255),color(255,110,190)
+        };
+        for(int i=0;i<34;++i) {
+            const float x=static_cast<float>((i*89 + elapsed*(4+i%3))%400);
+            const float y=static_cast<float>((i*137 + elapsed*(3+i%4))%240);
+            if(i%3==0) C2D_DrawRectSolid(x,y,0.90f,4,7,palette[i%6]);
+            else C2D_DrawCircleSolid(x,y,0.90f,2+(i%3),palette[i%6]);
+        }
+        const float t=std::max(0.0f,std::min(1.0f,elapsed/(FPS*6.0f)));
+        float y=64.0f;
+        float x=326.0f;
+        if(t<0.28f) {
+            const float local=t/0.28f;
+            y-=38.0f*std::abs(std::sin(local*3.1415926f*2.2f))*(1.0f-local*0.5f);
+        } else if(t<0.72f) {
+            const float local=(t-0.28f)/0.44f;
+            y-=8.0f*std::sin(local*3.1415926f*2.0f);
+        } else {
+            const float local=(t-0.72f)/0.28f;
+            y-=150.0f*local;
+            x+=72.0f*local;
+        }
+        const float wink=(t>0.18f&&t<0.23f)?0.82f:1.0f;
+        drawAssetFit("jetix_logo",x-48.0f*wink,y-36,96.0f*wink,72,0.94f,false,1.0f);
     }
 
     if (game.paused()) {
@@ -809,7 +854,8 @@ void renderTetrisTop(const Game& game, C3D_RenderTarget* target,
 }
 
 void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
-                        const Mp3Player& audio, const CodeKeyboardState& codes) {
+                        const Mp3Player& audio, const CodeKeyboardState& codes,
+                        bool guardiansRoute, bool phobosRoute) {
     if (codes.open) {
         renderCodeKeyboard(target, codes);
         return;
@@ -821,7 +867,7 @@ void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
     C2D_TargetClear(target, color(12, 9, 20));
     C2D_SceneBegin(target);
 
-    drawAssetFit(phaseBackground(game.lines()), 0, 0, 320, 240, 0.05f, true, 1.0f);
+    drawAssetFit(phaseBackground(game.lines(), phobosRoute), 0, 0, 320, 240, 0.05f, true, 1.0f);
     C2D_DrawRectSolid(0, 0, 0.20f, 320, 240, color(0,0,0,62));
 
     drawPanel(7, 7, 172, 226, accent, 0.28f);
@@ -845,9 +891,20 @@ void renderTetrisBottom(const Game& game, C3D_RenderTarget* target,
     C2D_DrawRectSolid(13, 208, 0.70f, 152, 22, color(92,47,123,235));
     drawText("TOUCH: CODE KEYBOARD", 23, 214, 0.27f, color(250,240,255));
 
-    const std::string phobosKey = game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay";
-    drawAssetFit(phobosKey, 174, 4, 142, 226, 0.58f, false, 1.0f);
-    drawText("PHOBOS", 244, 211, 0.29f, accent);
+    if(codes.vtdMode) {
+        C2D_DrawRectSolid(174,4,0.50f,142,226,color(0,55,18,95));
+        drawAssetFit("vtd_observer",174,4,142,226,0.58f,false,1.0f);
+        drawText("VALENTIN",236,211,0.27f,color(105,255,135));
+        drawText("L+R: EXIT VTD -> CLASSIC",181,222,0.20f,color(105,255,135));
+    } else if(!(guardiansRoute && game.lines()>=200)) {
+        const std::string phobosKey =
+            (phobosRoute && game.lines()>=200) ? "intro_phobos_cast" :
+            (game.lines() >= 100 ? "phobos_resistance" : "phobos_gameplay");
+        drawAssetFit(phobosKey, 174, 4, 142, 226, 0.58f, false, 1.0f);
+        drawText("PHOBOS", 244, 211, 0.29f, accent);
+    } else {
+        drawText("GUARDIANS ROUTE",196,112,0.34f,accent);
+    }
 
     if (codes.messageFrames > 0 && !codes.message.empty()) {
         drawPanel(179, 8, 136, 37, accent, 0.84f);
@@ -2808,8 +2865,8 @@ int main() {
             else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio,eye);
             else if(mode==Mode::Settings) renderSettings(topTarget,bottom,game,settingsPage,settingsIndex,eye);
             else if(mode==Mode::Tetris) {
-                renderTetrisTop(game,topTarget,codes,eye);
-                renderTetrisBottom(game,bottom,audio,codes);
+                renderTetrisTop(game,topTarget,codes,guardiansRoute,phobosRoute,eye);
+                renderTetrisBottom(game,bottom,audio,codes,guardiansRoute,phobosRoute);
             }
             else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(topTarget,bottom,cutsceneIndex);
             else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed,eye);
