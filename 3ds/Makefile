@@ -101,6 +101,10 @@ cia-meta:
 		-i "$(CIA_ICON_PNG)" \
 		-f visible,allow3d,nosavebackups \
 		-o "$(CIA_ICON)"
+	@bannertool makebanner \
+		-i "$(CIA_BANNER_PNG)" \
+		-a "$(CIA_BANNER_WAV)" \
+		-o "$(CIA_BANNER)"
 
 # Installable HOME Menu build for Luma3DS/FBI.
 cia: all cia-meta
@@ -112,6 +116,7 @@ cia: all cia-meta
 		-elf "$(TARGET).elf" \
 		-rsf "$(CIA_RSF)" \
 		-icon "$(CIA_ICON)" \
+		-banner "$(CIA_BANNER)" \
 		-DAPP_TITLE="$(CIA_PROCESS_NAME)" \
 		-DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" \
 		-DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)" \
