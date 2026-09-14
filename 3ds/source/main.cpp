@@ -996,7 +996,7 @@ void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
 
     if (t < 14.0f) {
         // Authored ending.py timeline: animated Heart + scrolling credits, 0–14 s.
-        const int heartFrame = static_cast<int>(t * 8.0f) % 6;
+        const int heartFrame = static_cast<int>(t * 8.0f) % 24;
         drawAtlasFrame("ending_heart", heartFrame, 12, 38, 135, 180, 0.58f);
 
         static const char* credits[] = {
