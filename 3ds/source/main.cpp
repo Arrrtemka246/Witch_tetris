@@ -1012,46 +1012,56 @@ void renderSettings(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
     drawText("B / START — BACK", 12, 207, 0.39f, accent);
 }
 
-void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const IntroState& intro) {
+void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
+                 const IntroState& intro, float eyeShift = 0.0f) {
     const u32 accent = color(215,145,255);
     const u32 text = color(245,240,250);
     const int scene = intro.scene;
+
+    // Cutscene stereo stack: scenery behind the screen, characters forward,
+    // dialogue/UI close to the screen plane. This is deliberately gentler
+    // than gameplay Phobos so rapid scene changes stay comfortable.
+    const float bgShift = eyeShift * 1.15f;
+    const float actorShift = -eyeShift * 2.05f;
+    const float frontShift = -eyeShift * 3.05f;
+    const float uiShift = -eyeShift * 0.65f;
 
     C2D_TargetClear(top, color(3,3,8));
     C2D_SceneBegin(top);
 
     if (scene == 0) {
-        drawFullscreenAsset("intro_castle");
+        drawAssetFit("intro_castle", -6 + bgShift, -3, 412, 246, 0.08f, true, 1.0f);
         C2D_DrawRectSolid(0, 0, 0.30f, 400, 240, color(0,0,0,42));
-        drawPanel(36, 162, 328, 58, accent, 0.80f);
-        drawText("MERIDIAN — PHOBOS CASTLE", 72, 178, 0.42f, text);
+        drawPanel(36 + uiShift, 162, 328, 58, accent, 0.80f);
+        drawText("MERIDIAN — PHOBOS CASTLE", 72 + uiShift, 178, 0.42f, text);
     } else {
-        drawFullscreenAsset("intro_throne");
+        drawAssetFit("intro_throne", -6 + bgShift, -3, 412, 246, 0.08f, true, 1.0f);
         C2D_DrawRectSolid(0, 0, 0.25f, 400, 240, color(0,0,0,28));
 
         if (scene == 1) {
-            drawAssetFit("intro_will", 30, 48, 135, 172, 0.46f);
-            drawAssetFit("intro_phobos", 248, 24, 145, 200, 0.45f);
-            drawPanel(48, 176, 304, 48, accent, 0.80f);
-            drawText("WILL: IT'S OVER, PHOBOS!", 75, 191, 0.41f, text);
+            drawAssetFit("intro_will", 30 + actorShift, 48, 135, 172, 0.46f);
+            drawAssetFit("intro_phobos", 248 + frontShift, 24, 145, 200, 0.55f);
+            drawPanel(48 + uiShift, 176, 304, 48, accent, 0.80f);
+            drawText("WILL: IT'S OVER, PHOBOS!", 75 + uiShift, 191, 0.41f, text);
         } else if (scene == 2) {
             const std::string key = std::string("intro_") + INTRO_ASSET_KEYS[intro.secondKind];
-            drawAssetFit(key, 120, 24, 160, 197, 0.49f);
-            drawPanel(48, 176, 304, 48, accent, 0.80f);
+            drawAssetFit(key, 120 + actorShift, 24, 160, 197, 0.52f);
+            drawPanel(48 + uiShift, 176, 304, 48, accent, 0.80f);
             drawText(std::string(PIECE_CHARACTERS[intro.secondKind]) + ": WE WON'T SURRENDER!",
-                     63, 191, 0.34f, text);
+                     63 + uiShift, 191, 0.34f, text);
         } else if (scene == 3) {
             const bool casting = intro.frames > 95;
             drawAssetFit(casting ? "intro_phobos_cast" : "intro_phobos",
-                         100, 16, 200, 207, 0.49f);
-            drawPanel(42, 176, 316, 48, accent, 0.80f);
-            drawText("PHOBOS: EVERYTHING IS JUST BEGINNING.", 55, 191, 0.33f, text);
+                         100 + frontShift, 16, 200, 207, 0.57f);
+            drawPanel(42 + uiShift, 176, 316, 48, accent, 0.80f);
+            drawText("PHOBOS: EVERYTHING IS JUST BEGINNING.",
+                     55 + uiShift, 191, 0.33f, text);
         } else if (scene == 4) {
-            drawAssetFit("intro_phobos_cast", 90, 10, 220, 216, 0.55f);
+            drawAssetFit("intro_phobos_cast", 90 + frontShift, 10, 220, 216, 0.61f);
             const int pulse = (intro.frames / 8) % 2;
             if (pulse)
                 C2D_DrawRectSolid(0,0,0.73f,400,240,color(220,175,255,52));
-            drawText("THE SPELL", 150, 202, 0.40f, accent);
+            drawText("THE SPELL", 150 + uiShift, 202, 0.40f, accent);
         } else if (scene == 5) {
             C2D_DrawRectSolid(0,0,0.35f,400,240,color(35,0,55,80));
             const int stage = intro.frames < 32 ? 0 :
@@ -1065,36 +1075,34 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const IntroSta
                 const float xs[PIECE_COUNT] = {23, 74, 125, 176, 227, 278, 329};
                 for (int kind=0; kind<PIECE_COUNT; ++kind) {
                     std::string key = introAssetKey(kind, stageName);
-                    drawAssetFit(key, xs[kind], 64 + (kind%2)*10, 52, 142, 0.56f);
+                    drawAssetFit(key, xs[kind] + actorShift, 64 + (kind%2)*10,
+                                 52, 142, 0.58f);
                 }
-                drawPanel(43, 187, 314, 38, accent, 0.81f);
-                drawText("ALL SEVEN ARE TRANSFORMING", 78, 198, 0.34f, text);
+                drawPanel(43 + uiShift, 187, 314, 38, accent, 0.81f);
+                drawText("ALL SEVEN ARE TRANSFORMING", 78 + uiShift, 198, 0.34f, text);
             } else {
                 std::string key;
-                if (intro.transformKind == Z && intro.horrorIrma && stage == 2) {
-                    // Z is Will in gameplay. Horror Irma is only valid when Irma
-                    // itself is selected, so this branch is intentionally not used.
-                    key = introAssetKey(intro.transformKind, stageName);
-                } else if (intro.transformKind == S && intro.horrorIrma && stage == 2) {
+                if (intro.transformKind == S && intro.horrorIrma && stage == 2)
                     key = "intro_irma_horror";
-                } else {
+                else
                     key = introAssetKey(intro.transformKind, stageName);
-                }
-                drawAssetFit(key, 115, 16, 170, 205, 0.57f);
-                drawPanel(48, 177, 304, 47, accent, 0.82f);
+
+                drawAssetFit(key, 115 + actorShift, 16, 170, 205, 0.59f);
+                drawPanel(48 + uiShift, 177, 304, 47, accent, 0.82f);
                 drawText(std::string(PIECE_CHARACTERS[intro.transformKind]) + " — TRANSFORMATION",
-                         78, 191, 0.35f, text);
+                         78 + uiShift, 191, 0.35f, text);
             }
         } else if (scene == 6) {
-            drawAssetFit("intro_phobos", 104, 14, 192, 210, 0.50f);
-            drawPanel(48, 177, 304, 47, accent, 0.82f);
-            drawText("PHOBOS: NOW YOUR POWER IS MINE.", 67, 191, 0.34f, text);
+            drawAssetFit("intro_phobos", 104 + frontShift, 14, 192, 210, 0.58f);
+            drawPanel(48 + uiShift, 177, 304, 47, accent, 0.82f);
+            drawText("PHOBOS: NOW YOUR POWER IS MINE.",
+                     67 + uiShift, 191, 0.34f, text);
         } else {
-            drawFullscreenAsset("bg_phase0");
+            drawAssetFit("bg_phase0", -6 + bgShift, -3, 412, 246, 0.08f, true, 1.0f);
             C2D_DrawRectSolid(0,0,0.32f,400,240,color(0,0,0,105));
-            drawPanel(52, 72, 296, 100, accent, 0.80f);
-            drawText("W.I.T.C.H. TETRIS", 92, 93, 0.70f, accent);
-            drawText("THE GAME HAS BEGUN.", 104, 132, 0.41f, text);
+            drawPanel(52 + uiShift, 72, 296, 100, accent, 0.80f);
+            drawText("W.I.T.C.H. TETRIS", 92 + uiShift, 93, 0.70f, accent);
+            drawText("THE GAME HAS BEGUN.", 104 + uiShift, 132, 0.41f, text);
         }
     }
 
@@ -1117,7 +1125,6 @@ void renderIntro(C3D_RenderTarget* top, C3D_RenderTarget* bottom, const IntroSta
     drawText(buf, 10, 211, 0.38f, accent);
 }
 
-
 float clamp01(float v) {
     return std::max(0.0f, std::min(1.0f, v));
 }
@@ -1133,17 +1140,24 @@ void drawAtlasFrame(const std::string& key, int index,
     drawImageFit(g_assets.image(key, index), x, y, w, h, depth, false, alpha);
 }
 
-void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
+void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
+                  float t, float eyeShift = 0.0f) {
     const u32 text = color(244,222,255);
     const u32 accent = color(205,140,255);
+
+    const float bgShift = eyeShift * 1.00f;
+    const float midShift = -eyeShift * 0.80f;
+    const float actorShift = -eyeShift * 2.10f;
+    const float frontShift = -eyeShift * 3.10f;
+    const float uiShift = -eyeShift * 0.55f;
 
     C2D_TargetClear(top, color(0,0,0));
     C2D_SceneBegin(top);
 
     if (t < 14.0f) {
-        // Authored ending.py timeline: animated Heart + scrolling credits, 0–14 s.
         const int heartFrame = static_cast<int>(t * 8.0f) % 24;
-        drawAtlasFrame("ending_heart", heartFrame, 12, 38, 135, 180, 0.58f);
+        drawAtlasFrame("ending_heart", heartFrame,
+                       12 + actorShift, 38, 135, 180, 0.58f);
 
         static const char* credits[] = {
             "W.I.T.C.H. TETRIS",
@@ -1164,22 +1178,22 @@ void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
         for (int i=0;i<creditCount;++i) {
             const float y = startY + i * 25.0f;
             if (y > 10.0f && y < 235.0f)
-                drawText(credits[i], 153, y, i==0 ? 0.38f : 0.27f, i==0 ? accent : text);
+                drawText(credits[i], 153 + uiShift, y,
+                         i==0 ? 0.38f : 0.27f, i==0 ? accent : text);
         }
     } else if (t < 24.0f) {
-        // 14–24 s: the same battle beats as ending.py.
         C2D_DrawRectSolid(0,0,0.10f,400,240,color(8,5,13));
         const float bt = t - 14.0f;
 
         if (t < 20.0f) {
             for (int i=0;i<6;++i) {
-                const float x = 370.0f - bt * 28.0f + (i%3)*34.0f;
+                const float x = 370.0f - bt * 28.0f + (i%3)*34.0f + midShift;
                 const float y = 54.0f + (i/3)*92.0f;
                 const float alpha = 1.0f - clamp01((t - 19.3f) / 0.7f);
                 drawAtlasFrame("ending_enemies", i, x, y, 52, 70, 0.46f, alpha);
             }
             for (int i=0;i<6;++i) {
-                const float x = 360.0f - std::fmod(bt*75.0f + i*48.0f, 330.0f);
+                const float x = 360.0f - std::fmod(bt*75.0f + i*48.0f, 330.0f) + midShift;
                 const float y = 42.0f + (i%3)*35.0f;
                 drawAtlasFrame("ending_bats", (static_cast<int>(t*12)+i)%6,
                                x, y, 34, 28, 0.50f);
@@ -1188,7 +1202,8 @@ void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
 
         if (t >= 20.0f && t < 22.0f) {
             const float alpha = 1.0f - clamp01((t - 21.65f) / 0.35f);
-            drawAtlasFrame("ending_cedric", 0, 293, 40, 92, 183, 0.52f, alpha);
+            drawAtlasFrame("ending_cedric", 0,
+                           293 + actorShift, 40, 92, 183, 0.52f, alpha);
         }
 
         const char* actorKeys[] = {
@@ -1215,7 +1230,8 @@ void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
                 y=lerpf(y,91.0f+(i%2)*10.0f,p);
                 pose=0;
             }
-            drawAtlasFrame(actorKeys[i], pose, x-26, y, 52, 132,
+            drawAtlasFrame(actorKeys[i], pose,
+                           x-26 + actorShift, y, 52, 132,
                            i==3 ? 0.61f : 0.60f);
         }
 
@@ -1230,7 +1246,8 @@ void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
             const float p=clamp01((t-22.0f)/2.0f);
             bx=lerpf(56,118,p); bpose=0;
         }
-        drawAtlasFrame("ending_blunk", bpose, bx-24, by, 48, 72, 0.62f);
+        drawAtlasFrame("ending_blunk", bpose,
+                       bx-24 + frontShift, by, 48, 72, 0.62f);
 
         if (t > 21.55f && t < 22.0f) {
             const float p=(t-21.55f)/0.45f;
@@ -1238,28 +1255,30 @@ void renderEnding(C3D_RenderTarget* top, C3D_RenderTarget* bottom, float t) {
             C2D_DrawRectSolid(0,0,0.86f,400,240,color(230,212,255,a));
         }
     } else if (t < 26.0f) {
-        // 24–26 s: authored Phobos artwork.
-        drawFullscreenAsset("ending_phobos",0.30f);
+        drawAssetFit("ending_phobos", -6 + actorShift, -3, 412, 246,
+                     0.30f, true, 1.0f);
     } else {
-        // 26–28.1 s: cross-fade/disintegration into final W.I.T.C.H. art.
         const float p = clamp01((t - 26.0f) / 2.1f);
-        drawFullscreenAsset("ending_witch",0.30f);
-        drawAssetFit("ending_phobos",0,0,400,240,0.50f,true,1.0f-p);
+        drawAssetFit("ending_witch", -6 + bgShift, -3, 412, 246,
+                     0.30f, true, 1.0f);
+        drawAssetFit("ending_phobos", -6 + actorShift, -3, 412, 246,
+                     0.50f, true, 1.0f-p);
 
         if (p < 1.0f) {
             for (int i=0;i<32;++i) {
                 const float delay=(i%7)*0.055f;
                 const float q=clamp01((p-delay)/std::max(0.01f,1.0f-delay));
                 if(q>=1.0f) continue;
-                const float x=185.0f+(i%8)*8.0f + ((i%3)-1)*24.0f*q;
+                const float x=185.0f+(i%8)*8.0f + ((i%3)-1)*24.0f*q + frontShift;
                 const float y=35.0f+(i/8)*32.0f - (36.0f+(i%5)*8.0f)*q;
-                C2D_DrawRectSolid(x,y,0.72f,4,4,color(170,90,210,static_cast<u8>(220*(1.0f-q))));
+                C2D_DrawRectSolid(x,y,0.72f,4,4,
+                    color(170,90,210,static_cast<u8>(220*(1.0f-q))));
             }
         }
 
         if (t >= 28.1f) {
-            drawPanel(72, 174, 256, 46, accent, 0.82f);
-            drawText("THANK YOU FOR PLAYING", 99, 188, 0.48f, text);
+            drawPanel(72 + uiShift, 174, 256, 46, accent, 0.82f);
+            drawText("THANK YOU FOR PLAYING", 99 + uiShift, 188, 0.48f, text);
         }
     }
 
@@ -1311,13 +1330,18 @@ void renderCutsceneMenu(C3D_RenderTarget* top, C3D_RenderTarget* bottom, int sel
 }
 
 void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
-                    const CutsceneState& cs, float elapsedSeconds) {
+                    const CutsceneState& cs, float elapsedSeconds,
+                    float eyeShift = 0.0f) {
     if (cs.kind == CutsceneKind::Ending) {
-        renderEnding(top,bottom,elapsedSeconds);
+        renderEnding(top,bottom,elapsedSeconds,eyeShift);
         return;
     }
 
     const u32 accent=color(211,143,255), text=color(245,240,250);
+    const float bgShift = eyeShift * 1.15f;
+    const float actorShift = -eyeShift * 2.25f;
+    const float uiShift = -eyeShift * 0.60f;
+
     C2D_TargetClear(top,color(4,3,8));
     C2D_SceneBegin(top);
 
@@ -1326,25 +1350,26 @@ void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
 
     if(cs.kind==CutsceneKind::Lines100) {
         title="100 LINES — RESISTANCE";
-        const char* frames[]={"l100_phobos","l100_will","l100_cornelia","l100_irma","l100_taranee","l100_haylin","l100_caleb","l100_heart"};
+        const char* frames[]={"l100_phobos","l100_will","l100_cornelia","l100_irma",
+                              "l100_taranee","l100_haylin","l100_caleb","l100_heart"};
         total=8;
-        drawFullscreenAsset("bg_phase1");
+        drawAssetFit("bg_phase1",-6+bgShift,-3,412,246,0.08f,true,1.0f);
         C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,75));
-        drawAssetFit(frames[cs.frame%total],70,18,260,205,0.5f);
+        drawAssetFit(frames[cs.frame%total],70+actorShift,18,260,205,0.55f);
     } else if(cs.kind==CutsceneKind::Lines200) {
         title="200 LINES — PHOBOS COLLAPSES";
         total=6;
-        drawFullscreenAsset("bg_phase2");
+        drawAssetFit("bg_phase2",-6+bgShift,-3,412,246,0.08f,true,1.0f);
         C2D_DrawRectSolid(0,0,0.25f,400,240,color(0,0,0,75));
         char key[32];
         std::snprintf(key,sizeof(key),"l200_collapse_%d",cs.frame%6);
-        drawAssetFit(key,40,10,320,220,0.5f);
+        drawAssetFit(key,40+actorShift,10,320,220,0.55f);
     } else {
         title="CUTSCENE";
         total=1;
     }
-    drawPanel(8,5,384,29,accent,0.80f);
-    drawText(title,20,12,0.38f,text);
+    drawPanel(8+uiShift,5,384,29,accent,0.80f);
+    drawText(title,20+uiShift,12,0.38f,text);
 
     C2D_TargetClear(bottom,color(12,9,20));
     C2D_SceneBegin(bottom);
@@ -1355,7 +1380,7 @@ void renderCutscene(C3D_RenderTarget* top, C3D_RenderTarget* bottom,
     C2D_DrawRectSolid(12,112,0.75f,296,50,color(88,45,118,230));
     drawText("A / TOUCH — NEXT",67,128,0.46f,text);
     drawText("B / START — leave scene",12,174,0.40f,text);
-    drawText("Original artwork, scaled for 400x240.",12,210,0.34f,accent);
+    drawText("Stereo depth: background -> actors -> UI.",12,210,0.34f,accent);
 }
 
 enum class MiniType {
@@ -1657,32 +1682,32 @@ void renderPhobosRoom(C3D_RenderTarget* top,C3D_RenderTarget* bottom,
                       int state,float eyeShift=0.0f) {
     const u32 accent=color(210,140,255),text=color(245,240,250);
 
-    const float bgShift=-eyeShift*0.9f;
-    const float phobosShift=-eyeShift*2.2f;
-    const float tableShift=-eyeShift*3.1f;
+    // Match desktop v6.37.1: room composite -> seated Phobos -> repaint the
+    // lower portion of that SAME composite. No separately scaled table sprite.
+    const float bgShift = eyeShift * 1.15f;
+    const float phobosShift = -eyeShift * 2.10f;
+    const float deskShift = -eyeShift * 3.05f;
 
     C2D_TargetClear(top,color(5,3,8));
     C2D_SceneBegin(top);
 
-    // Desktop reference: room -> large seated Phobos -> table foreground.
     drawAssetFit("phobos_room_bg",-6+bgShift,-3,412,246,0.08f,true,1.0f);
-    C2D_DrawRectSolid(0,0,0.20f,400,240,color(0,0,0,20));
+    C2D_DrawRectSolid(0,0,0.20f,400,240,color(0,0,0,18));
 
     char key[40];
     std::snprintf(key,sizeof(key),"phobos_room_pose%d",state%6);
-    drawAssetFit(key,88+phobosShift,23,224,194,0.53f,false,1.0f);
+    // Desktop pose is ~565/1080 of the canvas and bottoms around y=900.
+    // The 3DS equivalent is ~126 px tall with the body disappearing behind desk.
+    drawAssetFit(key,100+phobosShift,66,200,134,0.53f,false,1.0f);
 
-    // The foreground table masks the lower body exactly like the desktop room.
-    drawAssetFit("phobos_room_table",-4+tableShift,142,408,98,0.72f,true,1.0f);
-
-    // Very small title only; the room itself is the scene.
-    drawText("PHOBOS ROOM",12,10,0.30f,color(230,180,250));
+    // Exact lower repaint generated from background_v2 at the desktop 700/1080
+    // split, so the desk/window geometry aligns pixel-for-pixel.
+    drawAssetFit("phobos_room_foreground",-6+deskShift,-3,412,246,
+                 0.72f,true,1.0f);
 
     C2D_TargetClear(bottom,color(8,5,13));
     C2D_SceneBegin(bottom);
 
-    // Dialogue-oriented lower screen, matching the original composition rather
-    // than the previous debug/status card.
     drawPanel(9,12,302,158,accent,0.30f);
     drawText("ФОБОС",20,24,0.43f,accent);
     drawText("Левый Shift?",20,67,0.37f,text);
@@ -2086,7 +2111,7 @@ int main() {
                 (mode==Mode::Cutscene && cutscene.kind==CutsceneKind::Ending)
                 ? static_cast<float>(osGetTime()-cutscene.startedMs)/1000.0f : 0.0f;
 
-            if(mode==Mode::Intro) renderIntro(topTarget,bottom,intro);
+            if(mode==Mode::Intro) renderIntro(topTarget,bottom,intro,eye);
             else if(mode==Mode::Menu) renderMenu(topTarget,bottom,menuIndex,audio,eye);
             else if(mode==Mode::Settings) renderSettings(topTarget,bottom,game,eye);
             else if(mode==Mode::Tetris) {
@@ -2094,7 +2119,7 @@ int main() {
                 renderTetrisBottom(game,bottom,audio,codes);
             }
             else if(mode==Mode::CutsceneMenu) renderCutsceneMenu(topTarget,bottom,cutsceneIndex);
-            else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed);
+            else if(mode==Mode::Cutscene) renderCutscene(topTarget,bottom,cutscene,endingElapsed,eye);
             else renderPhobosRoom(topTarget,bottom,phobosState,eye);
         };
 
